@@ -249,9 +249,11 @@ public class AuthController : ControllerBase
             new(ClaimTypes.Name, user.Username)
         };
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+        // IsPersistent=false：写入会话级 Cookie（不设置 Expires），关闭浏览器后登录态即失效，
+        // 下次打开站点需要重新登录；同一浏览器的其它标签页在关闭前仍共享该登录态。
         await HttpContext.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
             new ClaimsPrincipal(identity),
-            new AuthenticationProperties { IsPersistent = true, ExpiresUtc = DateTimeOffset.UtcNow.AddDays(7) });
+            new AuthenticationProperties { IsPersistent = false });
     }
 }

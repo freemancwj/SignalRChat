@@ -104,6 +104,83 @@
   .rtc-panel .rtc-name{margin-top:10px; font-size:15px; color:#333;}
   .rtc-panel .rtc-hint{margin-top:6px; color:#999; font-size:12px;}
   .rtc-panel .rtc-ops{margin-top:18px;}
+
+  /* ===== 移动端适配（响应式）：窄屏下主面板铺满、聊天窗口全屏、弹层不超出屏幕 ===== */
+  @media (max-width: 768px){
+    html, body{overflow:hidden;}
+
+    /* 主面板：铺满整个视口 */
+    #layui-layim{
+      left:0 !important; top:0 !important; right:auto !important; bottom:auto !important;
+      width:100vw !important; height:100vh !important; height:100dvh !important;
+      margin:0 !important; border-radius:0 !important;
+    }
+    #layui-layim .layui-layer-title{height:110px !important;}
+    #layui-layim .layui-layim-info{padding:0 12px;}
+    #layui-layim .layui-layim-user{max-width:calc(100vw - 200px) !important;}
+    /* 列表区域占满剩余高度（可视高度减去头部信息、选项卡、底部工具栏） */
+    #layui-layim .layim-tab-content{height:calc(100dvh - 170px) !important; min-height:160px;}
+    #layui-layim .layui-layim-search input{width:calc(100vw - 60px);}
+
+    /* 聊天窗口：全屏覆盖主面板 */
+    #layui-layim-chat{
+      left:0 !important; top:0 !important; right:auto !important; bottom:auto !important;
+      width:100vw !important; height:100vh !important; height:100dvh !important;
+      min-width:0 !important; min-height:0 !important; border-radius:0 !important;
+    }
+    #layui-layim-chat .layui-layer-content{
+      position:static !important; height:auto !important; overflow:hidden !important;
+    }
+    #layui-layim-chat .layim-chat-box{margin-left:0 !important;}
+    /* 隐藏左侧多会话切换栏，把宽度让给消息区 */
+    #layui-layim-chat .layim-chat-list{display:none !important;}
+    /* 消息区与输入区按视口定位：消息区占 80px 标题以下、输入区以上，输入区贴底 */
+    #layui-layim-chat .layim-chat-main{
+      position:fixed; left:0; right:0; top:80px; bottom:142px;
+      height:auto !important; padding:10px 8px 5px;
+    }
+    #layui-layim-chat .layim-chat-footer{position:fixed; left:0; right:0; bottom:0; z-index:5; background:#F6F6F6;}
+    #layui-layim-chat .layim-chat-tool{padding:0 4px;}
+    #layui-layim-chat .layim-chat-tool span{margin:0 7px; font-size:21px;}
+    #layui-layim-chat .layim-chat-textarea{margin-left:6px;}
+    #layui-layim-chat .layim-chat-textarea textarea{height:52px;}
+    #layui-layim-chat .layim-chat-send{right:6px;}
+    #layui-layim-chat .layim-chat-send span{padding:0 12px;}
+    /* 消息气泡自适应宽度 */
+    #layui-layim-chat .layim-chat-main ul li{padding-left:48px; margin-bottom:8px; min-height:56px;}
+    #layui-layim-chat .layim-chat-main ul li.layim-chat-mine{padding-left:0; padding-right:48px;}
+    #layui-layim-chat .layim-chat-user img{width:34px; height:34px;}
+    #layui-layim-chat .layim-chat-user cite{width:auto !important; max-width:calc(100vw - 120px);}
+    #layui-layim-chat .layim-chat-user cite{left:48px;}
+    #layui-layim-chat .layim-chat-mine .layim-chat-user cite{left:auto; right:48px;}
+    #layui-layim-chat .layim-chat-text{max-width:calc(100vw - 108px); padding:7px 11px;}
+    #layui-layim-chat .layim-chat-title{top:-80px; height:80px;}
+    #layui-layim-chat .layim-chat-other{left:10px; padding-left:54px;}
+    #layui-layim-chat .layim-chat-other img{width:42px; height:42px;}
+    #layui-layim-chat .layim-chat-username{font-size:16px;}
+
+    /* 通用弹层（群组管理、加群、个人资料、头像等）：不超出屏幕，内容可滚动 */
+    .layui-layer:not(#layui-layim):not(#layui-layim-chat){
+      max-width:94vw !important; max-height:92vh !important; max-height:92dvh !important;
+    }
+    .layui-layer:not(#layui-layim):not(#layui-layim-chat) .layui-layer-content{overflow:auto !important;}
+    .layui-layer-title{font-size:14px;}
+    /* 聊天记录、消息盒子等 iframe 弹层 */
+    .layui-layer-page .layui-layer-content iframe{max-width:100%;}
+
+    /* 视频通话：窄屏时小窗与按钮排布更紧凑 */
+    #rtc-call-box{min-height:0;}
+    #rtc-local{width:110px; height:74px; right:8px; bottom:76px;}
+    .rtc-btns{gap:14px; padding:10px;}
+    .rtc-btn{width:42px; height:42px; font-size:17px;}
+  }
+
+  /* 超窄屏（如 320px）进一步压缩横向占位 */
+  @media (max-width: 380px){
+    #layui-layim .layui-layim-user{max-width:calc(100vw - 185px) !important; letter-spacing:1px;}
+    #layui-layim-chat .layim-chat-tool span{margin:0 5px; font-size:19px;}
+    #layui-layim-chat .layim-chat-text{max-width:calc(100vw - 92px);}
+  }
   </style>
 </head>
 <body>
