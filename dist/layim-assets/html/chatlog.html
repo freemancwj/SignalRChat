@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>聊天记录</title>
+
+<link rel="stylesheet" href="../../../layui/css/layui.css">
+<style>
+body .layim-chat-main{height: auto;}
+/* 聊天记录搜索栏 */
+#cl-search{padding:10px 10px 0;}
+#cl-search .layui-input-inline{width:220px; margin-right:8px;}
+#cl-search .layui-input{height:32px;}
+#cl-tip{padding:6px 10px 0; color:#999; font-size:12px;}
+</style>
+</head>
+<body>
+
+<div id="cl-search">
+  <div class="layui-input-inline">
+    <input type="text" id="cl-keyword" class="layui-input" placeholder="搜索聊天记录" autocomplete="off">
+  </div>
+  <button type="button" class="layui-btn layui-btn-sm" id="cl-do">搜索</button>
+  <button type="button" class="layui-btn layui-btn-sm layui-btn-primary" id="cl-reset">全部记录</button>
+</div>
+<div id="cl-tip"></div>
+
+<div class="layim-chat-main">
+  <ul id="LAY_view"></ul>
+</div>
+
+<div id="LAY_page" style="margin: 0 10px;"></div>
+
+
+<textarea title="消息模版" id="LAY_tpl" style="display:none;">
+{{# layui.each(d.data, function(index, item){
+  if(item.id == layui.layim.cache().mine.id){ }}
+    <li class="layim-chat-mine"><div class="layim-chat-user"><img src="{{ item.avatar }}"><cite><i>{{ item.timestampShow }}</i>{{ item.username }}</cite></div><div class="layim-chat-text">{{ layui.layim.content(item.content) }}</div></li>
+  {{# } else { }}
+    <li><div class="layim-chat-user"><img src="{{ item.avatar }}"><cite>{{ item.username }}<i>{{ item.timestampShow }}</i></cite></div><div class="layim-chat-text">{{ layui.layim.content(item.content) }}</div></li>
+  {{# }
+}); }}
+</textarea>
+
+
+<script src="../../../layui/layui.js"></script>
+<script>
+layui.link('../layim.css', 'skinlayimcss') //加载 css
+layui.config({
+  layimPath: '../../' //配置 layim.js 所在目录
+  ,layimAssetsPath: '../../layim-assets/' //layim 资源文件所在目录
+}).use(['jquery'], function(){
+  var layim = parent.layui.layim
+  ,laytpl = parent.layui.laytpl
+  ,$ = layui.jquery
+  ,laypage = parent.layui.laypage;
+
+  var $view = $('#LAY_view'), $tip = $('#cl-tip');
+
+  //格式化时间戳
+  function fmtDate(ts){
+    var d = new Date(ts);
+    function p(n){ return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  //从真实接口加载聊天记录（URL 上携带 id 和 type 参数；keyword 非空即为搜索）
+  function loadHistory(keyword){
+    var url = '/api/layim/chatlog' + location.search;
+    if(keyword){ url += '&keyword=' + encodeURIComponent(keyword); }
+    $.getJSON(url, function(res){
+      if(res.code !== 0){
+        $view.html('<li style="padding:15px; color:#999;">' + (res.msg || '加载失败') + '</li>');
+        $tip.text('');
+        return;
+      }
+      layui.each(res.data, function(i, item){
+        item.timestampShow = fmtDate(item.timestamp);
+      });
+
+      if(res.data.length === 0){
+        $view.html('<li style="padding:15px; color:#999;">'
+          + (keyword ? '没有找到包含「' + $('<i>').text(keyword).html() + '」的聊天记录' : '暂无聊天记录') + '</li>');
+      } else {
+        $view.html(laytpl(LAY_tpl.value).render({ data: res.data }));
+      }
+      //搜索结果提示
+      $tip.text(keyword
+        ? '「' + keyword + '」共匹配 ' + (res.total || 0) + ' 条' + (res.total > res.data.length ? '，显示最近 ' + res.data.length + ' 条' : '')
+        : '');
+      //滚动到底部
+      var main = document.querySelector('.layim-chat-main');
+      if(main){ main.scrollTop = main.scrollHeight; }
+    });
+  }
+
+  //搜索 / 重置
+  $('#cl-do').on('click', function(){ loadHistory($.trim($('#cl-keyword').val())); });
+  $('#cl-keyword').on('keydown', function(e){
+    if(e.keyCode === 13){ loadHistory($.trim($(this).val())); }
+  });
+  $('#cl-reset').on('click', function(){
+    $('#cl-keyword').val('');
+    loadHistory('');
+  });
+
+  loadHistory('');
+});
+</script>
+</body>
+</html>

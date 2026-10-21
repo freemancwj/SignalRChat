@@ -1,0 +1,1 @@
+options.UseSqlServer(dbSection["SqlServer"], o => o.UseCompatibilityLevel(100));

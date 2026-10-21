@@ -1,0 +1,1715 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>CXIM - ASP.NET Core + SignalR 在线聊天</title>
+  <link rel="stylesheet" href="./layui/css/layui.css">
+  <style>
+  html{background-color: #333;}
+
+  /* ===== 好友在线状态标识（显示在名字下方，替换签名位置） ===== */
+  /* 好友列表项的签名行隐藏文字，改用伪元素渲染状态 */
+  .layui-layim-list li[class*="layim-friend"] p{font-size:0;}
+  .layui-layim-list li[class*="layim-friend"] p::before{
+    content: "● 在线";
+    font-size: 12px;
+    letter-spacing: 1px;
+    color: #5FB878; /* 绿色圆点 + 在线 */
+  }
+  .layui-layim-list li[class*="layim-friend"].layim-list-gray p::before{
+    content: "● 不在线";
+    color: #999; /* 灰色圆点 + 不在线 */
+  }
+
+  /* 离线好友：仅头像置灰（覆盖 LayIM 默认的整行灰度滤镜），用户名保持正常 */
+  .layim-list-gray{
+    -webkit-filter: none !important;
+    filter: none !important;
+  }
+  .layim-list-gray img{
+    -webkit-filter: grayscale(100%) !important;
+    filter: grayscale(100%) !important;
+    opacity: .55;
+  }
+
+  /* 退出登录入口（面板头部用户名右侧）：实心高对比按钮，深色/浅色皮肤下均醒目 */
+  #logout-btn{
+    display: inline-block;
+    font-size: 12px;
+    line-height: 20px;
+    padding: 0 10px;
+    margin-left: 10px;
+    color: #fff;
+    background: linear-gradient(135deg, #FF7043, #E64A19);
+    border: 1px solid rgba(255,255,255,.45);
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.35);
+    cursor: pointer;
+    letter-spacing: 1px;
+    vertical-align: 4px;
+    transition: all .2s;
+  }
+  #logout-btn:hover{
+    background: #D84315;
+    box-shadow: 0 2px 7px rgba(216,67,21,.55);
+  }
+
+  /* ===== 面板头部：我的头像（点击设置）===== */
+  #mine-avatar{
+    display: inline-block;
+    width: 28px;
+    height: 28px;
+    margin-right: 6px;
+    border-radius: 50%;
+    object-fit: cover;
+    vertical-align: top;
+    cursor: pointer;
+    background: #d2d2d2;
+  }
+  /* 去掉用户名前的状态圆点（含状态下拉入口） */
+  body .layui-layim-status{display:none !important;}
+
+  /* 用户名文字：轻字重 + 字间距，视觉更秀气；头部还要放头像/退出按钮，限制宽度避免撑破 260px 面板 */
+  body .layui-layim-info .layui-layim-user{
+    max-width: 130px;
+    font-family: "PingFang SC", "Microsoft YaHei Light", "Source Han Sans CN", "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 300;
+    letter-spacing: 2px;
+    text-shadow: 0 1px 2px rgba(0,0,0,.35);
+  }
+
+  /* ===== 框选截图遮罩层 ===== */
+  #screenshot-overlay{position:fixed; left:0; top:0; right:0; bottom:0; z-index:99999999; cursor:crosshair; user-select:none;}
+  #screenshot-overlay .ss-bg{position:absolute; left:0; top:0; width:100%; height:100%;}
+  #screenshot-overlay .ss-mask{position:absolute; background:rgba(0,0,0,.45);}
+  #screenshot-overlay .ss-rect{position:absolute; border:2px solid #1E9FFF; box-sizing:border-box; display:none;}
+  #screenshot-overlay .ss-tip{position:absolute; left:50%; bottom:30px; transform:translateX(-50%); color:#fff; background:rgba(0,0,0,.65); padding:6px 14px; border-radius:4px; font-size:13px; pointer-events:none;}
+
+  /* ===== 视频通话窗口 ===== */
+  #rtc-call-box{position:relative; width:100%; height:100%; min-height:380px; background:#000; overflow:hidden;}
+  #rtc-remote{position:absolute; left:0; top:0; width:100%; height:100%; object-fit:contain; background:#000;}
+  #rtc-local{position:absolute; right:12px; bottom:70px; width:150px; height:100px; object-fit:cover; border:1px solid rgba(255,255,255,.45); border-radius:4px; background:#222; z-index:2;}
+  .rtc-statusbar{position:absolute; left:0; right:0; top:0; padding:8px 12px; color:#fff; background:linear-gradient(rgba(0,0,0,.5), transparent); font-size:13px; z-index:2;}
+  .rtc-btns{position:absolute; left:0; right:0; bottom:0; display:flex; justify-content:center; gap:20px; padding:14px; background:linear-gradient(transparent, rgba(0,0,0,.65)); z-index:2;}
+  .rtc-btn{width:46px; height:46px; border-radius:50%; border:none; cursor:pointer; background:rgba(255,255,255,.88); color:#333; font-size:19px; display:flex; align-items:center; justify-content:center;}
+  .rtc-btn:hover{background:#fff;}
+  .rtc-btn.off{background:rgba(255,87,34,.92); color:#fff;} /* 静音/关摄像头激活态 */
+  .rtc-btn.hangup{background:#FF5722; color:#fff;}
+  .rtc-btn.hangup:hover{background:#F4511E;}
+  /* 呼叫中 / 来电窗口共用 */
+  .rtc-panel{text-align:center; padding:24px 12px 14px;}
+  .rtc-panel img{width:72px; height:72px; border-radius:50%;}
+  .rtc-panel .rtc-name{margin-top:10px; font-size:15px; color:#333;}
+  .rtc-panel .rtc-hint{margin-top:6px; color:#999; font-size:12px;}
+  .rtc-panel .rtc-ops{margin-top:18px;}
+  </style>
+</head>
+<body>
+<!-- 退出登录入口（登录后由 JS 移动到 LayIM 面板头部用户名右侧） -->
+<span id="logout-btn" title="退出登录" style="display:none;">退出</span>
+<!-- 更换头像用的隐藏文件框 -->
+<input type="file" id="avatar-file" accept="image/jpeg,image/png,image/gif,image/bmp,image/webp" style="display:none;">
+<script src="./layui/layui.js"></script>
+<script src="./libs/html2canvas.min.js"></script>
+<script src="./signalr/signalr.min.js"></script>
+<script>
+
+if(!/^http(s*):\/\//.test(location.href)){
+  alert('请部署到 localhost 上查看该演示');
+}
+
+layui.use(['jquery', 'layer', 'form'], function(){
+  var $ = layui.jquery
+  ,layer = layui.layer
+  ,form = layui.form;
+
+  var connection = null; // SignalR 连接
+  var layim = null;
+  var loginLayerIndex = null;
+
+  // ==================== 入口：检查登录态 ====================
+  $.get('/api/auth/me', function(res){
+    if(res.code === 0){
+      bootLayim();
+    } else {
+      showLogin();
+    }
+  });
+
+  // ==================== 登录 / 注册面板 ====================
+  function showLogin(){
+    var html = [
+      '<div style="padding: 25px 25px 10px 25px;">'
+      ,'<div class="layui-tab layui-tab-brief">'
+      ,'<ul class="layui-tab-title">'
+      ,'<li class="layui-this">登录</li>'
+      ,'<li>注册新账号</li>'
+      ,'</ul>'
+      ,'<div class="layui-tab-content" style="padding: 15px 0 0 0;">'
+
+      // 登录表单
+      ,'<div class="layui-tab-item layui-show">'
+      ,'<form class="layui-form" lay-filter="form-login">'
+      ,'<div class="layui-form-item">'
+      ,'<input type="text" name="username" required lay-verify="required" placeholder="用户名" autocomplete="off" class="layui-input">'
+      ,'</div>'
+      ,'<div class="layui-form-item">'
+      ,'<input type="password" name="password" required lay-verify="required" placeholder="密码" autocomplete="off" class="layui-input">'
+      ,'</div>'
+      ,'<div class="layui-form-item">'
+      ,'<button class="layui-btn layui-btn-fluid" lay-submit lay-filter="login">登 录</button>'
+      ,'</div>'
+      ,'<div class="layui-form-item" style="margin-bottom:0;">'
+      ,'<span style="color:#999; font-size:12px;">演示账号：测试1 ~ 测试5，密码均为 123456</span>'
+      ,'</div>'
+      ,'</form>'
+      ,'</div>'
+
+      // 注册表单
+      ,'<div class="layui-tab-item">'
+      ,'<form class="layui-form" lay-filter="form-register">'
+      ,'<div class="layui-form-item">'
+      ,'<input type="text" name="username" required lay-verify="required" placeholder="用户名（2-20个字符）" autocomplete="off" class="layui-input">'
+      ,'</div>'
+      ,'<div class="layui-form-item">'
+      ,'<input type="password" name="password" required lay-verify="required" placeholder="密码（6-32个字符）" autocomplete="off" class="layui-input">'
+      ,'</div>'
+      ,'<div class="layui-form-item">'
+      ,'<input type="password" name="password2" required lay-verify="required" placeholder="确认密码" autocomplete="off" class="layui-input">'
+      ,'</div>'
+      ,'<div class="layui-form-item">'
+      ,'<select name="groupId">'
+      ,'<option value="">暂不加入群组（登录后可加入）</option>'
+      ,'</select>'
+      ,'</div>'
+      ,'<div class="layui-form-item">'
+      ,'<button class="layui-btn layui-btn-fluid layui-btn-normal" lay-submit lay-filter="register">注册并登录</button>'
+      ,'</div>'
+      ,'</form>'
+      ,'</div>'
+
+      ,'</div>'
+      ,'</div>'
+      ,'</div>'
+    ].join('');
+
+    loginLayerIndex = layer.open({
+      type: 1
+      ,title: 'CXIM 登录'
+      ,closeBtn: 0
+      ,shade: [0.95, '#333']
+      ,area: ['360px', '440px']
+      ,content: html
+      ,success: function(){
+        form.render();
+        // 加载群组列表供注册选择
+        $.get('/api/auth/groups', function(res){
+          if(res.code === 0){
+            var $sel = $('select[name="groupId"]');
+            $.each(res.data, function(_, g){
+              $sel.append('<option value="' + g.id + '">' + g.groupname + '</option>');
+            });
+            form.render('select');
+          }
+        });
+      }
+    });
+  }
+
+  form.on('submit(login)', function(data){
+    $.ajax({
+      url: '/api/auth/login'
+      ,type: 'post'
+      ,contentType: 'application/json; charset=utf-8'
+      ,data: JSON.stringify(data.field)
+      ,success: function(res){
+        if(res.code === 0){
+          layer.close(loginLayerIndex);
+          bootLayim();
+        } else {
+          layer.msg(res.msg || '登录失败');
+        }
+      }
+      ,error: function(){
+        layer.msg('网络错误，请重试');
+      }
+    });
+    return false;
+  });
+
+  form.on('submit(register)', function(data){
+    if(data.field.password !== data.field.password2){
+      layer.msg('两次输入的密码不一致');
+      return false;
+    }
+    $.ajax({
+      url: '/api/auth/register'
+      ,type: 'post'
+      ,contentType: 'application/json; charset=utf-8'
+      ,data: JSON.stringify({
+        username: data.field.username
+        ,password: data.field.password
+        ,groupId: data.field.groupId
+      })
+      ,success: function(res){
+        if(res.code === 0){
+          layer.close(loginLayerIndex);
+          bootLayim();
+        } else {
+          layer.msg(res.msg || '注册失败');
+        }
+      }
+      ,error: function(){
+        layer.msg('网络错误，请重试');
+      }
+    });
+    return false;
+  });
+
+  // ==================== 初始化 LayIM + SignalR ====================
+  function bootLayim(){
+    layui.config({
+      layimPath: 'dist/' //配置 layim.js 所在目录
+      ,layimAssetsPath: 'dist/layim-assets/' //layim 资源文件所在目录
+    }).extend({
+      layim: layui.cache.layimPath + 'layim'
+    }).use('layim', function(im){
+      layim = im;
+
+      //创建 SignalR 连接
+      connection = new signalR.HubConnectionBuilder()
+        .withUrl('/chathub')
+        .withAutomaticReconnect([0, 2000, 5000, 10000])
+        .configureLogging(signalR.LogLevel.Warning)
+        .build();
+
+      //收到新消息
+      connection.on('ReceiveMessage', function(msg){
+        layim.getMessage(msg);
+      });
+
+      //好友上下线状态
+      connection.on('FriendStatus', function(data){
+        if(layim.setFriendStatus){
+          layim.setFriendStatus(String(data.id), data.status);
+        }
+        if(data.status === 'online'){
+          layim.setChatStatus('<span style="color:#5FB878;">在线</span>');
+        }
+      });
+
+      //管理员删除群组：所有在线成员同步移除该群
+      connection.on('GroupDeleted', function(data){
+        if(!data || !data.id){ return; }
+        removeGroupLocal(String(data.id));
+        layer.msg('群「' + (data.name || data.id) + '」已被管理员解散', {icon: 0, time: 2500});
+      });
+
+      //被管理员移出群组
+      connection.on('RemovedFromGroup', function(data){
+        if(!data || !data.id){ return; }
+        removeGroupLocal(String(data.id));
+        layer.msg('你已被移出群「' + (data.name || data.id) + '」', {icon: 0, time: 2500});
+      });
+
+      //管理员修改群名称：在线成员的列表、聊天窗口标题同步更新
+      connection.on('GroupRenamed', function(data){
+        if(!data || !data.id || !data.name){ return; }
+        renameGroupLocal(String(data.id), data.name);
+        layer.msg('群名称已变更为「' + data.name + '」', {icon: 0, time: 2000});
+      });
+
+      connection.onreconnected(function(){
+        //重连后重新加入群组
+        connection.invoke('Rejoin').catch(function(){});
+        //重连后若本地已无通话状态，清掉服务端可能残留的会话，避免对端一直挂着通话窗口
+        if(rtc.state === 'idle'){
+          connection.invoke('EndMyCalls').catch(function(){});
+        }
+        //身份一致性校验：同一浏览器多标签共享 Cookie，另一个标签登录别的账号会覆盖它，
+        //此时重连拿到的身份已变成另一个人（自己的通话/消息都会错位），必须刷新对齐
+        $.get('/api/auth/me', function(res){
+          var uid = (res && res.code === 0 && res.data) ? String(res.data.id) : null;
+          if(uid && bootedUserId && uid !== bootedUserId){
+            console.warn('[rtc] 登录身份已变化 ' + bootedUserId + ' -> ' + uid + '，刷新页面以对齐会话');
+            location.reload();
+          }
+        });
+      });
+
+      layim.config({
+        //初始化接口（从数据库读取好友、群组和我的资料）
+        init: {
+          url: '/api/layim/init'
+          ,data: {}
+        }
+
+        //查看群员接口
+        ,members: {
+          url: '/api/layim/members'
+          ,data: {}
+        }
+
+        //上传图片接口
+        ,uploadImage: {
+          url: '/api/upload/image'
+          ,type: 'post'
+        }
+
+        //上传文件接口
+        ,uploadFile: {
+          url: '/api/upload/file'
+          ,type: 'post'
+        }
+
+        ,isAudio: false //关闭内置"发送网络音频"按钮（语音消息用自定义录音按钮）
+        ,isVideo: false //关闭内置"发送网络视频"按钮（视频通话用自定义按钮）
+
+        //扩展工具栏
+        ,tool: [{
+          alias: 'code'
+          ,title: '代码'
+          ,icon: '&#xe64e;'
+        },{
+          alias: 'screenshot'
+          ,title: '截图'
+          // LayUI 图标库没有剪刀图标，这里直接内联一个剪刀 SVG（微信截图同款造型，fill 继承工具栏图标颜色）
+          ,icon: '<svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" style="vertical-align:-3px"><path d="M9.64 7.64c.23-.5.36-1.05.36-1.64 0-2.21-1.79-4-4-4S2 3.79 2 6s1.79 4 4 4c.59 0 1.14-.13 1.64-.36L10 12l-2.36 2.36C7.14 14.13 6.59 14 6 14c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4c0-.59-.13-1.14-.36-1.64L12 14l7 7h3v-1L9.64 7.64zM6 8c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm0 12c-1.1 0-2-.89-2-2s.9-2 2-2 2 .89 2 2-.9 2-2 2zm6-7.5c-.28 0-.5-.22-.5-.5s.22-.5.5-.5.5.22.5.5-.22.5-.5.5zM19 3l-6 6 2 2 7-7V3z"/></svg>'
+        },{
+          alias: 'voice'
+          ,title: '语音消息'
+          ,icon: '&#xe6dc;'
+        },{
+          alias: 'videocall'
+          ,title: '视频通话'
+          ,icon: '&#xe65d;'
+        }]
+
+        ,initSkin: '5.jpg'
+        ,notice: true //开启桌面消息提醒
+
+        ,msgbox: layui.cache.layimAssetsPath + 'html/msgbox.html'
+        ,find: layui.cache.layimAssetsPath + 'html/find.html'
+        ,chatLog: layui.cache.layimAssetsPath + 'html/chatlog.html'
+      });
+
+      // 底部搜索去重：通讯录模式下同一人可能属于多个群组，
+      // LayIM 内置搜索按群组逐个罗列成员、不做去重，会出现同名用户重复
+      $(document).on('keyup', '.layui-layim-search input', function(){
+        if(!$.trim(this.value)){ return; }
+        var cache = layui.layim.cache(), seen = {};
+        $('#layui-layim-search > li[layim-event="chat"]').each(function(){
+          var $li = $(this), key = null;
+          if($li.attr('data-type') === 'friend'){
+            var g = (cache.friend || [])[+$li.attr('data-index')];
+            var u = g && g.list && g.list[+$li.attr('data-list')];
+            key = u ? 'u' + u.id : null;
+          } else {
+            var gg = (cache.group || [])[+$li.attr('data-index')];
+            key = gg ? 'g' + gg.id : null;
+          }
+          if(key){ seen[key] ? $li.remove() : (seen[key] = 1); }
+        });
+      });
+
+      //当前生效的头像地址；默认头像常量必须与服务端 Avatars.Default 完全一致（含前导 /），
+      //因为「是否自定义头像」是靠与它比对判断的
+      var mineAvatarUrl = '', DEF_AVATAR_URL = '/dist/layim-assets/images/default.png';
+
+      //触发layim建立就绪后，启动 SignalR 连接
+      layim.on('ready', function(res){
+        startSignalR();
+        // 记录本次页面启动时的登录身份：同一浏览器多标签共享 Cookie，
+        // 若 Cookie 被另一个账号覆盖，重连后服务端会把我认成另一个人（详见 onreconnected 校验）
+        if(res && res.mine && res.mine.id){ bootedUserId = String(res.mine.id); }
+        // 面板头部调整为：我的头像 → 用户名 → 退出按钮（不再显示状态圆点）
+        var $user = $('.layui-layim-user').first();
+        $('.layui-layim-status').hide();          // 状态圆点及状态下拉入口不再展示
+        if($user.length){
+          $user.after($('#logout-btn').show());   // 退出按钮放在用户名右侧
+          // 点击用户名：修改用户名 / 登录密码
+          $user.css('cursor', 'pointer').attr('title', '点击修改用户名 / 密码')
+            .on('click', openProfileDialog);
+        } else {
+          $('#logout-btn').show();
+        }
+        // 面板头部左侧显示我的头像：未设置自定义头像时用默认头像；点击打开「个人头像」设置
+        mineAvatarUrl = (res.mine && res.mine.avatar) || DEF_AVATAR_URL;
+        $('<img id="mine-avatar">')
+          .attr({src: mineAvatarUrl, title: '点击设置头像'})
+          .on('click', openAvatarDialog)
+          .prependTo($('.layui-layim-info').first());
+
+        // 面板底部工具栏加「加群/退群」入口（LayIM 没有现成按钮，注入到工具栏最左侧）
+        $('<li class="layui-icon" id="group-manage-btn" title="加群 / 退群">&#xe654;</li>')
+          .on('click', openGroupManage)
+          .prependTo($('.layui-layim-tool').first());
+
+        // 超级管理员额外显示「群组管理」入口（新建群、删除群、移除群成员）
+        if(res.mine && res.mine.admin){
+          $('<li class="layui-icon" id="group-admin-btn" title="群组管理">&#xe614;</li>')
+            .on('click', openGroupAdmin)
+            .prependTo($('.layui-layim-tool').first());
+        }
+      });
+
+      // ==================== 加群 / 退群 ====================
+      function openGroupManage(){
+        var idx = layer.open({
+          type: 1
+          ,title: '加群 / 退群'
+          ,area: ['420px', '460px']
+          ,shade: 0.3
+          ,closeBtn: 1
+          ,content: '<div id="gm-box" style="padding:8px 14px; height:380px; overflow-y:auto;"></div>'
+          ,success: function(layero){ renderGroupManage(layero); }
+        });
+      }
+
+      function renderGroupManage(layero){
+        var $box = layero.find('#gm-box');
+        $box.html('<p style="text-align:center; color:#999; padding-top:30px;">加载中...</p>');
+        $.get('/api/layim/groups', function(res){
+          if(res.code !== 0){ $box.html('<p style="text-align:center; color:#999; padding-top:30px;">加载失败</p>'); return; }
+          if(!res.data || !res.data.length){ $box.html('<p style="text-align:center; color:#999; padding-top:30px;">暂无可加入的群组</p>'); return; }
+
+          var map = {};
+          $box.html(res.data.map(function(g){
+            map[g.id] = g;
+            var btn = g.joined
+              ? '<button class="layui-btn layui-btn-xs layui-btn-primary" data-act="leave" data-id="' + g.id + '">退出</button>'
+              : '<button class="layui-btn layui-btn-xs" data-act="join" data-id="' + g.id + '">加入</button>';
+            return '<div style="display:flex; align-items:center; padding:10px 2px; border-bottom:1px solid #f2f2f2;">'
+              + '<img src="' + g.avatar + '" style="width:36px; height:36px; border-radius:50%; object-fit:cover; background:#ddd;">'
+              + '<div style="flex:1; min-width:0; margin-left:10px;">'
+              + '<div style="font-size:14px; color:#333; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + rtcEsc(g.groupname) + '</div>'
+              + '<div style="font-size:12px; color:#999;">' + g.memberCount + ' 人' + (g.joined ? ' · 已加入' : '') + '</div>'
+              + '</div>' + btn + '</div>';
+          }).join(''));
+
+          $box.find('button[data-act]').on('click', function(){
+            var $btn = $(this), act = $btn.data('act'), gid = String($btn.data('id')), g = map[gid];
+            $btn.prop('disabled', true);
+            $.ajax({
+              url: '/api/layim/groups/' + act
+              ,type: 'post'
+              ,contentType: 'application/json; charset=utf-8'
+              ,data: JSON.stringify({id: gid})
+              ,success: function(r){
+                if(r.code !== 0){
+                  layer.msg(r.msg || '操作失败', {icon: 2});
+                  $btn.prop('disabled', false);
+                  return;
+                }
+                if(act === 'join'){
+                  // 左侧群组列表同步新增，无需刷新页面
+                  layim.addList({type: 'group', id: gid, groupname: g.groupname, avatar: g.avatar});
+                  layer.msg('已加入「' + g.groupname + '」', {icon: 1, time: 1000});
+                } else {
+                  removeGroupLocal(gid);
+                  layer.msg('已退出「' + g.groupname + '」', {icon: 1, time: 1000});
+                }
+                renderGroupManage(layero);
+              }
+              ,error: function(){
+                layer.msg('网络错误，请重试', {icon: 2});
+                $btn.prop('disabled', false);
+              }
+            });
+          });
+        });
+      }
+
+      // 从左侧群组列表移除某个群（退群 / 群被解散 / 被移出群时复用），并关闭已打开的群聊天窗口
+      function removeGroupLocal(gid){
+        // 群名要在 removeList 前取，之后 cache 里就没有这个群了
+        var gname = '';
+        try{
+          (layui.layim.cache().group || []).forEach(function(g){
+            if(String(g.id) === String(gid)){ gname = g.groupname; }
+          });
+        }catch(e){}
+
+        try{ layim.removeList({type: 'group', id: gid}); }catch(e){}
+
+        // 已打开的群聊天窗口
+        $('.layim-chatlist-group' + gid).find('[layim-event="closeChat"]').trigger('click');
+
+        // 通讯录（好友标签页）里按群名分组的部门条目
+        if(gname){
+          $('ul.layim-list-friend > li').each(function(){
+            var $li = $(this);
+            if($.trim($li.find('h5 span').text()) === gname){ $li.remove(); }
+          });
+        }
+
+        // 最近聊天列表中的群条目（LayIM 渲染为 li.layim-group{id}）
+        $('ul.layim-list-history > li.layim-group' + gid).remove();
+      }
+
+      // 群改名（管理员操作或收到 GroupRenamed 推送）：同步缓存、左侧群组、通讯录部门、聊天窗口标题
+      function renameGroupLocal(gid, newName){
+        var oldName = '';
+        try{
+          (layui.layim.cache().group || []).forEach(function(g){
+            if(String(g.id) === String(gid)){ oldName = g.groupname; g.groupname = newName; }
+          });
+        }catch(e){}
+
+        $('.layim-group' + gid).find('span').first().text(newName);
+        $('.layim-chatlist-group' + gid).find('span').text(newName);
+
+        if(oldName){
+          $('ul.layim-list-friend > li').each(function(){
+            var $h5 = $(this).find('h5 span');
+            if($.trim($h5.text()) === oldName){ $h5.text(newName); }
+          });
+          $('.layim-chat-username').each(function(){
+            if($(this).text() === oldName){ $(this).text(newName); }
+          });
+        }
+      }
+
+      // ==================== 群组管理（仅超级管理员） ====================
+      function openGroupAdmin(){
+        layer.open({
+          type: 1
+          ,title: '群组管理'
+          ,area: ['480px', '540px']
+          ,shade: 0.3
+          ,closeBtn: 1
+          ,content: '<div style="padding:10px 14px;">'
+            + '<div style="display:flex; gap:8px; margin-bottom:10px;">'
+            + '<input id="ga-name" class="layui-input" maxlength="30" placeholder="输入群名称，例如：市场部" style="flex:1;">'
+            + '<button id="ga-create" class="layui-btn layui-btn-sm">新建群</button>'
+            + '</div>'
+            + '<div id="ga-list" style="height:430px; overflow-y:auto;">'
+            + '<p style="text-align:center; color:#999; padding-top:30px;">加载中...</p>'
+            + '</div></div>'
+          ,success: function(layero){
+            layero.find('#ga-create').on('click', function(){ createGroupByAdmin(layero); });
+            layero.find('#ga-name').on('keydown', function(e){
+              if(e.keyCode === 13){ createGroupByAdmin(layero); }
+            });
+            renderGroupAdmin(layero);
+          }
+        });
+      }
+
+      function createGroupByAdmin(layero){
+        var name = $.trim(layero.find('#ga-name').val());
+        if(!name){ layer.msg('请输入群名称', {icon: 0}); return; }
+        var $btn = layero.find('#ga-create').prop('disabled', true);
+        $.ajax({
+          url: '/api/admin/groups'
+          ,type: 'post'
+          ,contentType: 'application/json; charset=utf-8'
+          ,data: JSON.stringify({name: name})
+          ,success: function(r){
+            $btn.prop('disabled', false);
+            if(r.code !== 0){ layer.msg(r.msg || '创建失败', {icon: 2}); return; }
+            // 管理员自动成为新群成员，左侧列表直接新增
+            layim.addList({type: 'group', id: String(r.data.id), groupname: r.data.groupname, avatar: r.data.avatar});
+            layero.find('#ga-name').val('');
+            layer.msg('群「' + r.data.groupname + '」已创建', {icon: 1, time: 1200});
+            renderGroupAdmin(layero);
+          }
+          ,error: function(){
+            $btn.prop('disabled', false);
+            layer.msg('网络错误，请重试', {icon: 2});
+          }
+        });
+      }
+
+      function renderGroupAdmin(layero){
+        var $list = layero.find('#ga-list');
+        $list.html('<p style="text-align:center; color:#999; padding-top:30px;">加载中...</p>');
+        $.get('/api/layim/groups', function(res){
+          if(res.code !== 0){
+            $list.html('<p style="text-align:center; color:#999; padding-top:30px;">加载失败</p>');
+            return;
+          }
+          if(!res.data || !res.data.length){
+            $list.html('<p style="text-align:center; color:#999; padding-top:30px;">暂无群组，可在上方新建</p>');
+            return;
+          }
+
+          $list.html(res.data.map(function(g){
+            return '<div class="ga-item" data-id="' + g.id + '" style="border-bottom:1px solid #f2f2f2; padding:8px 0;">'
+              + '<div style="display:flex; align-items:center;">'
+              + '<img src="' + g.avatar + '" style="width:32px; height:32px; border-radius:50%; object-fit:cover; background:#ddd;">'
+              + '<div style="flex:1; min-width:0; margin-left:10px;">'
+              + '<div style="font-size:14px; color:#333; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + rtcEsc(g.groupname) + '</div>'
+              + '<div style="font-size:12px; color:#999;">' + g.memberCount + ' 人</div>'
+              + '</div>'
+              + '<button class="layui-btn layui-btn-xs layui-btn-primary" data-act="rename">改名</button>'
+              + '<button class="layui-btn layui-btn-xs layui-btn-primary" data-act="members" style="margin-left:6px;">成员</button>'
+              + '<button class="layui-btn layui-btn-xs layui-btn-danger" data-act="del" style="margin-left:6px;">解散</button>'
+              + '</div>'
+              + '<div class="ga-members" style="display:none; margin:6px 0 0 42px;"></div>'
+              + '</div>';
+          }).join(''));
+
+          $list.find('button[data-act]').on('click', function(){
+            var $btn = $(this), act = $btn.data('act'), $item = $btn.closest('.ga-item');
+            var gid = String($item.data('id'));
+            var groupName = $item.find('div[style*="font-size:14px"]').text();
+
+            if(act === 'rename'){
+              layer.prompt({
+                title: '修改群名称'
+                ,value: groupName
+                ,maxlength: 30
+                ,formType: 0
+              }, function(val, pi, input){
+                var newName = $.trim((input && input.val ? input.val() : val) || '');
+                if(!newName){ layer.msg('群名称不能为空', {icon: 0}); return; }
+                if(newName === groupName){
+                  layer.close(pi);
+                  layer.msg('群名称未变化', {icon: 0, time: 1000});
+                  return;
+                }
+                $.ajax({
+                  url: '/api/admin/groups/' + gid
+                  ,type: 'put'
+                  ,contentType: 'application/json; charset=utf-8'
+                  ,data: JSON.stringify({name: newName})
+                  ,success: function(r){
+                    if(r.code !== 0){ layer.msg(r.msg || '修改失败', {icon: 2}); return; }
+                    layer.close(pi);
+                    try{ renameGroupLocal(gid, newName); }catch(e){ console.warn('同步群名失败', e); }
+                    layer.msg('群名称已修改为「' + newName + '」', {icon: 1, time: 1200});
+                    renderGroupAdmin(layero);
+                  }
+                  ,error: function(){
+                    layer.msg('网络错误，请重试', {icon: 2});
+                  }
+                });
+              });
+              return;
+            }
+
+            if(act === 'del'){
+              layer.confirm('确定解散群「' + rtcEsc(groupName) + '」？<br><span style="color:#999;font-size:12px;">该群的所有成员关系和聊天记录都会被删除。</span>',
+                {icon: 3, title: '解散群组'}, function(ci){
+                  layer.close(ci);
+                  $.ajax({
+                    url: '/api/admin/groups/' + gid
+                    ,type: 'delete'
+                    ,success: function(r){
+                      if(r.code !== 0){ layer.msg(r.msg || '删除失败', {icon: 2}); return; }
+                      removeGroupLocal(gid);
+                      layer.msg('已解散群「' + groupName + '」', {icon: 1, time: 1200});
+                      renderGroupAdmin(layero);
+                    }
+                    ,error: function(){ layer.msg('网络错误，请重试', {icon: 2}); }
+                  });
+                });
+              return;
+            }
+
+            // 展开 / 收起成员列表
+            var $m = $item.find('.ga-members');
+            if($m.is(':visible')){ $m.hide(); return; }
+            $m.show().html('<p style="color:#999; font-size:12px;">加载中...</p>');
+            $.get('/api/layim/members', {id: gid}, function(r2){
+              if(r2.code !== 0 || !r2.data){
+                $m.html('<p style="color:#999; font-size:12px;">加载失败</p>');
+                return;
+              }
+              var list = r2.data.list || [];
+              if(!list.length){
+                $m.html('<p style="color:#999; font-size:12px;">该群暂无成员</p>');
+                return;
+              }
+              $m.html(list.map(function(u){
+                return '<div style="display:flex; align-items:center; padding:5px 0;">'
+                  + '<img src="' + u.avatar + '" style="width:22px; height:22px; border-radius:50%; object-fit:cover; background:#ddd;">'
+                  + '<span style="flex:1; margin-left:8px; font-size:13px; color:#666;">' + rtcEsc(u.username) + '</span>'
+                  + (String(u.id) === bootedUserId
+                      ? '<span style="font-size:12px; color:#bbb;">我自己</span>'
+                      : '<button class="layui-btn layui-btn-xs layui-btn-primary" data-rm="' + u.id + '">移出</button>')
+                  + '</div>';
+              }).join(''));
+
+              $m.find('button[data-rm]').on('click', function(){
+                var $b = $(this), uid = String($b.data('rm'));
+                $b.prop('disabled', true);
+                $.ajax({
+                  url: '/api/admin/groups/' + gid + '/members/' + uid
+                  ,type: 'delete'
+                  ,success: function(r3){
+                    if(r3.code !== 0){
+                      layer.msg(r3.msg || '操作失败', {icon: 2});
+                      $b.prop('disabled', false);
+                      return;
+                    }
+                    layer.msg('已移出该成员', {icon: 1, time: 1000});
+                    renderGroupAdmin(layero);
+                  }
+                  ,error: function(){
+                    layer.msg('网络错误，请重试', {icon: 2});
+                    $b.prop('disabled', false);
+                  }
+                });
+              });
+            });
+          });
+        });
+      }
+
+      //「修改用户名 / 密码」弹窗：登录后点击面板头部用户名打开
+      function openProfileDialog(){
+        var curName = $.trim($('.layui-layim-user').first().text());
+        layer.open({
+          type: 1
+          ,title: '修改用户名 / 密码'
+          ,area: ['360px', '340px']
+          ,shade: 0.3
+          ,closeBtn: 1
+          ,btn: ['保存', '取消']
+          ,content: '<div style="padding:16px 20px 0;">'
+            + '<div style="margin-bottom:12px;">'
+            + '<div style="font-size:12px; color:#666; margin-bottom:6px;">用户名（2-20 个字符）</div>'
+            + '<input id="pf-name" class="layui-input" maxlength="20" value="' + rtcEsc(curName) + '">'
+            + '</div>'
+            + '<div style="margin-bottom:12px;">'
+            + '<div style="font-size:12px; color:#666; margin-bottom:6px;">新密码（留空表示不修改，6-32 个字符）</div>'
+            + '<input id="pf-pwd" type="password" class="layui-input" maxlength="32" autocomplete="new-password" placeholder="不修改请留空">'
+            + '</div>'
+            + '<div style="margin-bottom:12px;">'
+            + '<div style="font-size:12px; color:#666; margin-bottom:6px;">确认新密码</div>'
+            + '<input id="pf-pwd2" type="password" class="layui-input" maxlength="32" autocomplete="new-password" placeholder="再次输入新密码">'
+            + '</div>'
+            + '</div>'
+          ,yes: function(index, layero){
+            var newName = $.trim(layero.find('#pf-name').val());
+            var pwd = layero.find('#pf-pwd').val() || '';
+            var pwd2 = layero.find('#pf-pwd2').val() || '';
+
+            if(newName.length < 2 || newName.length > 20){ layer.msg('用户名长度需在 2-20 个字符之间', {icon: 0}); return; }
+            if(pwd && (pwd.length < 6 || pwd.length > 32)){ layer.msg('密码长度需在 6-32 个字符之间', {icon: 0}); return; }
+            if(pwd !== pwd2){ layer.msg('两次输入的密码不一致', {icon: 0}); return; }
+
+            var $btn = layero.find('.layui-layer-btn0').css('pointer-events', 'none');
+            $.ajax({
+              url: '/api/auth/profile'
+              ,type: 'post'
+              ,contentType: 'application/json; charset=utf-8'
+              ,data: JSON.stringify({username: newName, newPassword: pwd})
+              ,success: function(r){
+                $btn.css('pointer-events', '');
+                if(r.code !== 0){ layer.msg(r.msg || '保存失败', {icon: 2}); return; }
+                layer.close(index);
+                $('.layui-layim-user').first().text(r.data.username);
+                try{ layui.layim.cache().mine.username = r.data.username; }catch(e){}
+                layer.msg(r.data.passwordChanged ? '用户名和密码已修改' : '用户名已修改', {icon: 1, time: 1500});
+              }
+              ,error: function(){
+                $btn.css('pointer-events', '');
+                layer.msg('网络错误，请重试', {icon: 2});
+              }
+            });
+          }
+          ,success: function(layero){
+            layero.find('#pf-name').focus().select();
+            layero.find('#pf-pwd').on('keydown', function(e){
+              if(e.keyCode === 13){ layero.find('.layui-layer-btn0').trigger('click'); }
+            });
+            layero.find('#pf-pwd2').on('keydown', function(e){
+              if(e.keyCode === 13){ layero.find('.layui-layer-btn0').trigger('click'); }
+            });
+          }
+        });
+      }
+
+      //「个人头像」设置弹窗：预览当前头像 + 更换 + 恢复默认
+      function openAvatarDialog(){
+        var isCustom = !!mineAvatarUrl && mineAvatarUrl !== DEF_AVATAR_URL;
+        var idx = layer.open({
+          type: 1
+          ,title: '个人头像'
+          ,area: ['320px', '305px']
+          ,shade: 0.3
+          ,closeBtn: 1
+          ,content: '<div style="padding:18px 20px 0; text-align:center;">'
+            + '<img src="' + (mineAvatarUrl || DEF_AVATAR_URL) + '" style="width:110px; height:110px; border-radius:50%; object-fit:cover; border:1px solid #e2e2e2;">'
+            + '<p style="height:20px; margin-top:8px; font-size:12px; color:#999;">' + (isCustom ? '' : '当前使用的是默认头像') + '</p>'
+            + '<div style="margin-top:10px;">'
+            + '<button type="button" class="layui-btn layui-btn-sm" id="av-pick">更换头像</button>'
+            + (isCustom ? '<button type="button" class="layui-btn layui-btn-sm layui-btn-primary" id="av-reset" style="margin-left:6px;">恢复默认</button>' : '')
+            + '</div>'
+            + '<p style="margin-top:12px; font-size:12px; color:#999; line-height:20px;">支持 jpg / png / gif / bmp / webp，<br>文件不超过 2MB</p>'
+            + '</div>'
+          ,success: function(layero, index){
+            layero.find('#av-pick').on('click', function(){ $('#avatar-file').click(); });
+            layero.find('#av-reset').on('click', function(){
+              $.post('/api/layim/avatar/reset', {}, function(res){
+                if(res.code === 0){
+                  layer.msg('已恢复默认头像', {icon: 1, time: 800}, function(){ location.reload(); });
+                } else {
+                  layer.msg(res.msg || '操作失败', {icon: 2});
+                }
+              });
+            });
+          }
+        });
+      }
+
+      //选择图片后上传头像
+      $('#avatar-file').on('change', function(){
+        var file = this.files[0];
+        if(!file){ return; }
+        var fd = new FormData();
+        fd.append('file', file);
+        var loadIdx = layer.load(1);
+        $.ajax({
+          url: '/api/layim/avatar'
+          ,type: 'post'
+          ,data: fd
+          ,processData: false
+          ,contentType: false
+          ,success: function(res){
+            layer.close(loadIdx);
+            if(res.code === 0){
+              layer.msg('头像已更新', {icon: 1, time: 800}, function(){ location.reload(); });
+            } else {
+              layer.msg(res.msg || '上传失败', {icon: 2});
+            }
+          }
+          ,error: function(){
+            layer.close(loadIdx);
+            layer.msg('上传失败，请重试', {icon: 2});
+          }
+        });
+        $(this).val(''); // 允许重复选择同一文件
+      });
+
+      // ===== 框选截图（工具栏按钮 或 快捷键 Ctrl+Alt+A） =====
+      // LayIM 默认把扩展工具放在音频/视频后面，这里把自定义按钮挪到"发送文件"按钮正后方，保持：图片/文件/截图/语音/视频通话
+      new MutationObserver(function(){
+        $('.layim-chat-tool').each(function(){
+          var $file = $(this).find('.layim-tool-image[data-type="file"]');
+          if(!$file.length){ return; }
+          var $anchor = $file;
+          $.each(['screenshot', 'voice', 'videocall'], function(_, alias){
+            var $btn = $(this).find('.layim-tool-' + alias);
+            if($btn.length && $btn.prev()[0] !== $anchor[0]){
+              $anchor.after($btn);
+            }
+            if($btn.length){ $anchor = $btn; }
+          }.bind($(this)));
+        });
+      }).observe(document.body, {childList: true, subtree: true});
+
+      //工具栏按钮 → LayIM 官方扩展事件（回调直接拿到当前聊天对象）
+      layim.on('tool(screenshot)', function(insert, send, chat){
+        console.log('[screenshot] tool event fired');
+        startScreenshot(chat.textarea);
+      });
+
+      //快捷键 Ctrl+Alt+A → 对当前激活的聊天窗口启动截图
+      $(document).on('keydown.screenshot', function(e){
+        if(e.ctrlKey && e.altKey && (e.keyCode === 65)){
+          e.preventDefault();
+          var $ta = $('.layim-chat:visible').first().find('textarea');
+          if(!$ta.length){
+            layer.msg('请先打开一个聊天窗口', {icon: 0});
+            return;
+          }
+          startScreenshot($ta);
+        }
+      });
+
+      //第一步：html2canvas 把当前页面渲染成图片（无需屏幕共享授权，所见即所得）
+      function startScreenshot($textarea){
+        if(!window.html2canvas){
+          layer.msg('截图组件未加载（libs/html2canvas.min.js）', {icon: 2});
+          return;
+        }
+        var loadIdx = layer.load(1);
+        html2canvas(document.body, {
+          useCORS: true
+          ,backgroundColor: '#333' //与 html 背景一致，避免边缘留白
+          ,scale: Math.min(window.devicePixelRatio || 1, 2) //高分屏下保证清晰度
+          ,logging: false
+          ,ignoreElements: function(el){
+            //渲染时排除加载动画与可能残留的框选遮罩，避免出现在底图里
+            return el.nodeType === 1 &&
+              (el.classList.contains('layui-layer-loading') || el.id === 'screenshot-overlay');
+          }
+        }).then(function(canvas){
+          layer.close(loadIdx);
+          if(!canvas.width || !canvas.height){
+            layer.msg('页面渲染失败，请重试', {icon: 2});
+            return;
+          }
+          openSnipOverlay(canvas, $textarea);
+        }).catch(function(err){
+          layer.close(loadIdx);
+          layer.msg('截图失败：' + ((err && err.message) || err), {icon: 2});
+        });
+      }
+
+      //第二步：全屏遮罩 + 鼠标框选
+      function openSnipOverlay(frame, $textarea){
+        var $ov = $('#screenshot-overlay');
+        if(!$ov.length){
+          $ov = $('<div id="screenshot-overlay">'
+            + '<img class="ss-bg">'
+            + '<div class="ss-mask ss-t"></div><div class="ss-mask ss-b"></div>'
+            + '<div class="ss-mask ss-l"></div><div class="ss-mask ss-r"></div>'
+            + '<div class="ss-rect"></div>'
+            + '<div class="ss-tip">按住鼠标左键框选截图区域，ESC 取消</div>'
+            + '</div>');
+          $('body').append($ov);
+        }
+        $ov.find('.ss-bg').attr('src', frame.toDataURL('image/png'));
+        $ov.show().find('.ss-rect').hide();
+
+        var $rect = $ov.find('.ss-rect');
+        var sx = 0, sy = 0, dragging = false;
+
+        // 四块遮罩：框选区域保持明亮，其余区域压暗
+        function setMasks(x1, y1, x2, y2){
+          var W = $ov.width(), H = $ov.height();
+          $ov.find('.ss-t').css({left: 0, top: 0, width: W, height: y1});
+          $ov.find('.ss-b').css({left: 0, top: y2, width: W, height: H - y2});
+          $ov.find('.ss-l').css({left: 0, top: y1, width: x1, height: y2 - y1});
+          $ov.find('.ss-r').css({left: x2, top: y1, width: W - x2, height: y2 - y1});
+        }
+        setMasks(0, 0, 0, 0);
+
+        function cleanup(){
+          $ov.hide();
+          $ov.off('.snip');
+          $(document).off('keydown.snip');
+        }
+
+        $ov.off('.snip');
+        $(document).off('keydown.snip');
+        $ov.on('mousedown.snip', function(e){
+          dragging = true;
+          sx = e.clientX; sy = e.clientY;
+          $rect.hide();
+          setMasks(0, 0, 0, 0);
+          e.preventDefault();
+        });
+        $ov.on('mousemove.snip', function(e){
+          if(!dragging){ return; }
+          var x1 = Math.min(sx, e.clientX), y1 = Math.min(sy, e.clientY);
+          var x2 = Math.max(sx, e.clientX), y2 = Math.max(sy, e.clientY);
+          $rect.show().css({left: x1, top: y1, width: x2 - x1, height: y2 - y1});
+          setMasks(x1, y1, x2, y2);
+        });
+        $ov.on('mouseup.snip', function(e){
+          if(!dragging){ return; }
+          dragging = false;
+          var x = Math.min(sx, e.clientX), y = Math.min(sy, e.clientY);
+          var w = Math.abs(e.clientX - sx), h = Math.abs(e.clientY - sy);
+          if(w < 10 || h < 10){ return; } // 框选太小视为误触，继续选择
+          finish(x, y, w, h);
+        });
+        $(document).on('keydown.snip', function(e){
+          if(e.keyCode === 27){ cleanup(); } // ESC 取消
+        });
+
+        //第三步：按框选区域裁剪底图并发送
+        function finish(x, y, w, h){
+          var kx = frame.width / $ov.width();
+          var ky = frame.height / $ov.height();
+          var crop = document.createElement('canvas');
+          crop.width = Math.round(w * kx);
+          crop.height = Math.round(h * ky);
+          crop.getContext('2d').drawImage(frame, x * kx, y * ky, w * kx, h * ky, 0, 0, crop.width, crop.height);
+          cleanup();
+          crop.toBlob(function(blob){
+            if(!blob){ layer.msg('截图失败', {icon: 2}); return; }
+            uploadScreenshot(blob, $textarea);
+          }, 'image/png');
+        }
+      }
+
+      //第四步：上传截图并复用 LayIM 回车发送管线
+      function uploadScreenshot(blob, $textarea){
+        var fd = new FormData();
+        fd.append('file', blob, 'screenshot-' + Date.now() + '.png');
+        var loadIdx = layer.load(1);
+        $.ajax({
+          url: '/api/upload/image'
+          ,type: 'post'
+          ,data: fd
+          ,processData: false
+          ,contentType: false
+          ,success: function(res){
+            layer.close(loadIdx);
+            if(res.code === 0 && res.data && res.data.src){
+              $textarea.val($textarea.val() + 'img[' + res.data.src + ']');
+              $textarea.trigger($.Event('keydown', {keyCode: 13, which: 13}));
+            } else {
+              layer.msg(res.msg || '上传失败', {icon: 2});
+            }
+          }
+          ,error: function(){
+            layer.close(loadIdx);
+            layer.msg('上传失败，请重试', {icon: 2});
+          }
+        });
+      }
+
+      // ===== 语音消息（MediaRecorder 录音 → 上传 → 发送 audio[url]） =====
+      var voiceRec = null; // {rec, stream, chunks, startAt, timer, layerIdx, $textarea}
+
+      layim.on('tool(voice)', function(insert, send, chat){
+        if(voiceRec){
+          layer.msg('正在录音中，请先完成当前录音', {icon: 0});
+          return;
+        }
+        if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder){
+          layer.msg('当前浏览器不支持语音录制（需 Chrome/Edge 且为 localhost 或 HTTPS）', {icon: 2});
+          return;
+        }
+        navigator.mediaDevices.getUserMedia({audio: true}).then(function(stream){
+          var chunks = [];
+          var rec = new MediaRecorder(stream); // Chrome/Edge 默认 audio/webm;codecs=opus
+          rec.ondataavailable = function(e){ if(e.data && e.data.size){ chunks.push(e.data); } };
+          var startAt = Date.now();
+
+          // 先占位（layer.open 的 success 回调同步执行，需要引用本对象）
+          voiceRec = {rec: rec, stream: stream, chunks: chunks, startAt: startAt, timer: null, layerIdx: null, $textarea: chat.textarea, $time: null};
+
+          var layerIdx = layer.open({
+            type: 1
+            ,title: false
+            ,closeBtn: 0
+            ,shade: 0
+            ,area: ['300px', '150px']
+            ,content: '<div style="padding:20px 15px; text-align:center;">'
+              + '<div style="color:#FF5722; font-size:14px;">● 正在录音 <span class="vr-time">00:00</span></div>'
+              + '<div style="margin-top:16px;">'
+              + '<button type="button" class="layui-btn layui-btn-primary layui-btn-sm vr-cancel">取消</button> '
+              + '<button type="button" class="layui-btn layui-btn-sm vr-send">停止并发送</button>'
+              + '</div>'
+              + '<div style="margin-top:10px; color:#999; font-size:12px;">最长 60 秒，到时自动发送</div>'
+              + '</div>'
+            ,success: function(layero){
+              if(voiceRec){ voiceRec.$time = layero.find('.vr-time'); }
+              layero.find('.vr-cancel').on('click', function(){ stopVoice(false); });
+              layero.find('.vr-send').on('click', function(){ stopVoice(true); });
+            }
+            ,end: function(){
+              // 弹层被外部关闭时按取消处理
+              if(voiceRec && voiceRec.layerIdx === layerIdx){ stopVoice(false); }
+            }
+          });
+          if(!voiceRec){ // success 期间已被取消（防御）
+            stream.getTracks().forEach(function(t){ t.stop(); });
+            return;
+          }
+          voiceRec.layerIdx = layerIdx;
+          voiceRec.timer = setInterval(function(){
+            var s = Math.floor((Date.now() - startAt) / 1000);
+            if(voiceRec && voiceRec.$time){
+              voiceRec.$time.text(('0' + Math.floor(s / 60)).slice(-2) + ':' + ('0' + (s % 60)).slice(-2));
+            }
+            if(s >= 60){ stopVoice(true); }
+          }, 500);
+
+          rec.start();
+        }).catch(function(){
+          layer.msg('无法访问麦克风，请在浏览器地址栏允许麦克风权限', {icon: 2});
+        });
+      });
+
+      function stopVoice(sendIt){
+        var vr = voiceRec;
+        if(!vr){ return; }
+        voiceRec = null;
+        clearInterval(vr.timer);
+        layer.close(vr.layerIdx);
+        var duration = Date.now() - vr.startAt;
+        vr.rec.onstop = function(){
+          vr.stream.getTracks().forEach(function(t){ t.stop(); });
+          if(!sendIt){ return; }
+          if(duration < 1000){
+            layer.msg('录音时间太短', {icon: 0});
+            return;
+          }
+          var blob = new Blob(vr.chunks, {type: vr.rec.mimeType || 'audio/webm'});
+          uploadVoice(blob, vr.$textarea);
+        };
+        try{ vr.rec.stop(); }catch(e){ vr.stream.getTracks().forEach(function(t){ t.stop(); }); }
+      }
+
+      //上传语音并复用 LayIM 回车发送管线（audio[url] 由 LayIM 渲染为可播放的音频气泡）
+      function uploadVoice(blob, $textarea){
+        var fd = new FormData();
+        fd.append('file', blob, 'voice-' + Date.now() + '.webm');
+        var loadIdx = layer.load(1);
+        $.ajax({
+          url: '/api/upload/file'
+          ,type: 'post'
+          ,data: fd
+          ,processData: false
+          ,contentType: false
+          ,success: function(res){
+            layer.close(loadIdx);
+            if(res.code === 0 && res.data && res.data.src){
+              $textarea.val($textarea.val() + 'audio[' + res.data.src + ']');
+              $textarea.trigger($.Event('keydown', {keyCode: 13, which: 13}));
+            } else {
+              layer.msg(res.msg || '上传失败', {icon: 2});
+            }
+          }
+          ,error: function(){
+            layer.close(loadIdx);
+            layer.msg('上传失败，请重试', {icon: 2});
+          }
+        });
+      }
+
+      // ===== 视频通话（1对1 WebRTC，SignalR 作信令通道） =====
+      // 状态机：idle（空闲）→ calling（呼叫中）/ incoming（来电中）→ incall（通话中）→ idle
+      var bootedUserId = null; // 本页面启动时的登录用户ID（用于重连后校验身份是否被其他标签页覆盖）
+      var rtc = {
+        state: 'idle'
+        ,pc: null            // RTCPeerConnection
+        ,localStream: null   // 本地摄像头+麦克风流
+        ,peer: null          // {id, name, avatar}
+        ,layerIdx: null      // 当前打开的通话相关弹层
+        ,timeoutTimer: null  // 呼叫超时（30s 无应答自动取消）
+        ,durationTimer: null // 通话计时
+        ,iceFailTimer: null  // ICE 失败后的宽限计时（避免误判瞬间失败就挂断）
+        ,ringAudio: null     // 来电铃声
+        ,pendingIce: null    // pc 建立前收到的 ICE 候选缓存
+        ,internalClose: {}   // 由代码内部关闭的弹层索引集合（区别于用户点 × 关闭）
+        ,muted: false
+        ,camOff: false
+      };
+
+      function rtcEsc(s){
+        return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      }
+
+      //工具栏「视频通话」按钮（仅单聊）
+      //注意：LayIM thisChat 回调的第三个参数结构为 {elem, data, textarea}，聊天对象信息在 data 里
+      layim.on('tool(videocall)', function(insert, send, chat){
+        var info = (chat && chat.data) ? chat.data : {};
+        if(info.type !== 'friend'){
+          layer.msg('视频通话仅支持单聊', {icon: 0});
+          return;
+        }
+        startVideoCall({id: String(info.id), name: info.name, avatar: info.avatar});
+      });
+
+      // ---------- 主叫流程 ----------
+      function startVideoCall(peer){
+        if(rtc.state !== 'idle'){
+          layer.msg('你正在通话中，请先结束当前通话', {icon: 0});
+          return;
+        }
+        if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection){
+          layer.msg('当前浏览器不支持视频通话（需 Chrome/Edge 且为 localhost 或 HTTPS）', {icon: 2});
+          return;
+        }
+        rtc.peer = peer;
+        // 先显示呼叫窗口（此时"取消"可用），拿到本地摄像头/麦克风后才真正发出邀请：
+        // 否则对方接听后主叫才发现设备不可用，会表现为"一接通就马上结束通话"。
+        rtc.state = 'preparing';
+        openCallingLayer(peer);
+        getLocalStream().then(function(mediaErr){
+          if(mediaErr){
+            // 设备不可用（常见原因：同一浏览器另一个标签页/其他程序已占用摄像头）
+            cleanupRtc();
+            layer.msg(mediaErr, {icon: 2, time: 4000});
+            return;
+          }
+          if(rtc.state !== 'preparing' || rtc.peer !== peer){ return; } // 用户已取消
+          rtc.state = 'calling';
+          connection.invoke('CallInvite', peer.id).catch(function(err){
+            cleanupRtc();
+            layer.msg(err.message || '呼叫失败', {icon: 2});
+          });
+          // 30 秒无应答自动取消
+          rtc.timeoutTimer = setTimeout(function(){
+            if(rtc.state === 'calling' && rtc.peer){
+              connection.invoke('CallCancel', rtc.peer.id).catch(function(){});
+              cleanupRtc();
+              layer.msg('对方无应答', {icon: 0});
+            }
+          }, 30000);
+        });
+      }
+
+      //呼叫中窗口
+      function openCallingLayer(peer){
+        closeRtcLayer();
+        var idx = layer.open({
+          type: 1
+          ,title: '视频通话'
+          ,area: ['300px', '235px']
+          ,shade: 0
+          ,closeBtn: 1 //提供右上角关闭按钮，避免弹层"关不掉"
+          ,shadeClose: false
+          ,content: '<div class="rtc-panel">'
+            + '<img src="' + rtcEsc(peer.avatar) + '">'
+            + '<div class="rtc-name">' + rtcEsc(peer.name) + '</div>'
+            + '<div class="rtc-hint">正在等待对方接受邀请…</div>'
+            + '<div class="rtc-ops"><button type="button" class="layui-btn layui-btn-danger layui-btn-sm rtc-cancel-call">取消</button></div>'
+            + '</div>'
+          ,success: function(layero){
+            layero.find('.rtc-cancel-call').on('click', function(){
+              // 仅在邀请已发出时才通知对方，避免"准备中取消"给对方发无意义的 CallCancelled
+              if(rtc.state === 'calling' && rtc.peer){ connection.invoke('CallCancel', rtc.peer.id).catch(function(){}); }
+              cleanupRtc();
+            });
+          }
+          ,end: function(){ onRtcLayerEnd(idx, 'calling'); }
+        });
+        rtc.layerIdx = idx;
+      }
+
+      // ---------- 被叫流程 ----------
+      connection.on('IncomingCall', function(from){
+        if(rtc.state !== 'idle'){ return; } // 服务端已拦并发，这里双保险
+        openIncomingLayer({id: String(from.id), name: from.username, avatar: from.avatar});
+      });
+
+      //来电弹层（点右上角 × 关闭等价于「拒绝」）
+      function openIncomingLayer(peer){
+        rtc.state = 'incoming';
+        rtc.peer = peer;
+        playRing();
+        var idx = layer.open({
+          type: 1
+          ,title: '来电'
+          ,area: ['300px', '255px']
+          ,shade: 0
+          ,closeBtn: 1 //关掉来电弹层等价于拒绝
+          ,shadeClose: false
+          ,content: '<div class="rtc-panel">'
+            + '<img src="' + rtcEsc(rtc.peer.avatar) + '">'
+            + '<div class="rtc-name">' + rtcEsc(rtc.peer.name) + '</div>'
+            + '<div class="rtc-hint">邀请你视频通话</div>'
+            + '<div class="rtc-ops">'
+            + '<button type="button" class="layui-btn layui-btn-primary layui-btn-sm rtc-reject">拒绝</button> '
+            + '<button type="button" class="layui-btn layui-btn-sm rtc-accept">接听</button>'
+            + '</div>'
+            + '</div>'
+          ,success: function(layero){
+            layero.find('.rtc-reject').on('click', function(){
+              connection.invoke('CallReject', rtc.peer.id).catch(function(){});
+              cleanupRtc();
+            });
+            layero.find('.rtc-accept').on('click', function(){ acceptCall(); });
+          }
+          ,end: function(){ onRtcLayerEnd(idx, 'incoming'); }
+        });
+        rtc.layerIdx = idx;
+      }
+
+      //接听：先拿本地媒体流，成功后才通知主叫
+      function acceptCall(){
+        var peer = rtc.peer;
+        if(!peer){ return; }
+        getLocalStream().then(function(mediaErr){
+          if(mediaErr){
+            connection.invoke('CallReject', peer.id).catch(function(){});
+            cleanupRtc();
+            layer.msg(mediaErr, {icon: 2, time: 4000});
+            return;
+          }
+          rtc.state = 'incall';
+          connection.invoke('CallAccept', peer.id).catch(function(err){
+            cleanupRtc();
+            layer.msg(err.message || '接听失败', {icon: 2});
+          });
+          openCallLayer(); // 等待主叫的 offer
+        });
+      }
+
+      //主叫收到「对方已接听」→ 建连接 → 发 offer（本地流在呼叫前已就绪）
+      connection.on('CallAccepted', function(data){
+        if(rtc.state !== 'calling' || !rtc.peer || String(data.by) !== rtc.peer.id){ return; }
+        getLocalStream().then(function(mediaErr){
+          if(mediaErr){
+            connection.invoke('CallHangup', rtc.peer.id).catch(function(){});
+            cleanupRtc();
+            layer.msg(mediaErr, {icon: 2, time: 4000});
+            return;
+          }
+          rtc.state = 'incall';
+          openCallLayer();
+          createPeerConnection();
+          rtc.pc.createOffer()
+            .then(function(offer){ return rtc.pc.setLocalDescription(offer); })
+            .then(function(){ sendRtcSignal({sdp: rtc.pc.localDescription}); })
+            .catch(function(e){
+              console.error('创建 offer 失败', e);
+              hangupWithNotify();
+            });
+        });
+      });
+
+      // ---------- 信令处理（SDP / ICE 转发） ----------
+      connection.on('RtcSignal', function(msg){
+        if(!rtc.peer || String(msg.from) !== rtc.peer.id){ return; }
+        var data;
+        try{ data = JSON.parse(msg.payload); }catch(e){ return; }
+        if(data.sdp){
+          handleRemoteSdp(data.sdp);
+        } else if(data.candidate){
+          if(rtc.pc){
+            rtc.pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(function(){});
+          } else {
+            (rtc.pendingIce = rtc.pendingIce || []).push(data.candidate);
+          }
+        }
+      });
+
+      function handleRemoteSdp(sdp){
+        createPeerConnection();
+        rtc.pc.setRemoteDescription(new RTCSessionDescription(sdp)).then(function(){
+          if(sdp.type === 'offer'){
+            return rtc.pc.createAnswer();
+          }
+          return null;
+        }).then(function(answer){
+          if(answer){
+            return rtc.pc.setLocalDescription(answer).then(function(){
+              sendRtcSignal({sdp: rtc.pc.localDescription});
+            });
+          }
+        }).catch(function(e){
+          console.error('SDP 协商失败', e);
+        });
+      }
+
+      function createPeerConnection(){
+        if(rtc.pc){ return; }
+        //国内网络环境下 Google 的 STUN 常不可达，额外配一个腾讯 STUN 提高打洞成功率（纯局域网/本机测试不依赖 STUN）
+        var pc = new RTCPeerConnection({iceServers: [
+          {urls: 'stun:stun.l.google.com:19302'}
+          ,{urls: 'stun:stun.qq.com:3478'}
+        ]});
+        rtc.pc = pc;
+        rtc.localStream.getTracks().forEach(function(t){ pc.addTrack(t, rtc.localStream); });
+        pc.onicecandidate = function(e){
+          if(e.candidate){ sendRtcSignal({candidate: e.candidate.toJSON()}); }
+        };
+        pc.ontrack = function(e){
+          var v = document.getElementById('rtc-remote');
+          if(v && e.streams && e.streams[0]){ v.srcObject = e.streams[0]; }
+        };
+        pc.onconnectionstatechange = function(){
+          var st = pc.connectionState;
+          console.log('[rtc] connectionState=' + st + ' iceConnectionState=' + pc.iceConnectionState);
+          if(st === 'connected'){
+            clearTimeout(rtc.iceFailTimer);
+            rtc.iceFailTimer = null;
+            return;
+          }
+          if(st === 'failed'){
+            // ICE 失败不立即挂断：单机自测/内网环境下 ICE 偶发失败很常见，
+            // 先尝试重启 ICE，并给 6 秒恢复窗口（期间媒体可能自行恢复），仍失败才结束通话。
+            if(!pc.__iceRestarted){
+              pc.__iceRestarted = true;
+              console.warn('[rtc] ICE 失败，尝试 restartIce()');
+              try{ if(pc.restartIce){ pc.restartIce(); } }catch(e){}
+            }
+            if(!rtc.iceFailTimer){
+              rtc.iceFailTimer = setTimeout(function(){
+                rtc.iceFailTimer = null;
+                if(rtc.pc === pc && pc.connectionState === 'failed'){
+                  layer.msg('通话连接失败', {icon: 2});
+                  hangupWithNotify();
+                }
+              }, 6000);
+            }
+          }
+        };
+        //补投缓存的 ICE 候选
+        if(rtc.pendingIce){
+          rtc.pendingIce.forEach(function(c){
+            pc.addIceCandidate(new RTCIceCandidate(c)).catch(function(){});
+          });
+          rtc.pendingIce = null;
+        }
+      }
+
+      function sendRtcSignal(obj){
+        if(!rtc.peer){ return; }
+        connection.invoke('RtcSignal', rtc.peer.id, JSON.stringify(obj)).catch(function(err){
+          console.error('RtcSignal 发送失败', err);
+        });
+      }
+
+      //区分采集失败的原因：同一浏览器多个标签页/其他程序占用摄像头是常见情形
+      function mediaErrorMessage(err){
+        var n = (err && err.name) || '';
+        if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+          return '当前浏览器/环境不支持音视频采集（需 Chrome/Edge，且为 localhost 或 HTTPS）';
+        }
+        if(n === 'NotAllowedError' || n === 'SecurityError'){
+          return '摄像头/麦克风未授权：请点击地址栏的权限图标允许访问后重试';
+        }
+        if(n === 'NotReadableError' || n === 'TrackStartError' || n === 'AbortError'){
+          return '摄像头/麦克风被占用：可能是同一浏览器的另一个标签页或其它程序正在使用，请关闭后重试';
+        }
+        if(n === 'NotFoundError' || n === 'DevicesNotFoundError'){
+          return '未检测到摄像头或麦克风设备';
+        }
+        return '无法访问摄像头/麦克风' + (n ? '（' + n + '）' : '');
+      }
+
+      //返回 Promise：成功 resolve(null)，失败 resolve(可直接展示的错误说明)
+      function getLocalStream(){
+        if(rtc.localStream){ return Promise.resolve(null); }
+        if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+          return Promise.resolve(mediaErrorMessage(null));
+        }
+        return navigator.mediaDevices.getUserMedia({
+          video: {width: {ideal: 640}, height: {ideal: 480}}
+          ,audio: true
+        }).then(function(s){
+          rtc.localStream = s;
+          return null;
+        }).catch(function(err){
+          console.warn('[rtc] getUserMedia 失败 name=' + ((err && err.name) || err));
+          return mediaErrorMessage(err);
+        });
+      }
+
+      // ---------- 通话窗口 ----------
+      function openCallLayer(){
+        closeRtcLayer();
+        var peer = rtc.peer;
+        var idx = layer.open({
+          type: 1
+          ,title: '与 ' + rtcEsc(peer.name) + ' 视频通话'
+          ,area: ['660px', '500px']
+          ,shade: 0
+          ,closeBtn: 1 //右上角关闭按钮：关掉窗口即挂断
+          ,shadeClose: false
+          ,maxmin: true
+          ,content: '<div id="rtc-call-box">'
+            + '<video id="rtc-remote" autoplay playsinline></video>'
+            + '<video id="rtc-local" autoplay playsinline muted></video>'
+            + '<div class="rtc-statusbar">通话时长 <span class="rtc-time">00:00</span></div>'
+            + '<div class="rtc-btns">'
+            + '<button type="button" class="rtc-btn rtc-mute" title="静音"><i class="layui-icon">&#xe6dc;</i></button>'
+            + '<button type="button" class="rtc-btn rtc-cam" title="关闭摄像头"><i class="layui-icon">&#xe6ed;</i></button>'
+            + '<button type="button" class="rtc-btn hangup rtc-hangup" title="挂断"><i class="layui-icon">&#x1006;</i></button>'
+            + '</div>'
+            + '</div>'
+          ,success: function(layero){
+            var lv = layero.find('#rtc-local')[0];
+            if(lv && rtc.localStream){ lv.srcObject = rtc.localStream; }
+            var startAt = Date.now();
+            var $t = layero.find('.rtc-time');
+            rtc.durationTimer = setInterval(function(){
+              var s = Math.floor((Date.now() - startAt) / 1000);
+              $t.text(('0' + Math.floor(s / 60)).slice(-2) + ':' + ('0' + (s % 60)).slice(-2));
+            }, 1000);
+            layero.find('.rtc-mute').on('click', function(){
+              rtc.muted = !rtc.muted;
+              rtc.localStream.getAudioTracks().forEach(function(t){ t.enabled = !rtc.muted; });
+              $(this).toggleClass('off', rtc.muted).attr('title', rtc.muted ? '取消静音' : '静音');
+            });
+            layero.find('.rtc-cam').on('click', function(){
+              rtc.camOff = !rtc.camOff;
+              rtc.localStream.getVideoTracks().forEach(function(t){ t.enabled = !rtc.camOff; });
+              $(this).toggleClass('off', rtc.camOff).attr('title', rtc.camOff ? '开启摄像头' : '关闭摄像头');
+            });
+            layero.find('.rtc-hangup').on('click', function(){ hangupWithNotify(); });
+          }
+          ,end: function(){ onRtcLayerEnd(idx, 'incall'); }
+        });
+        rtc.layerIdx = idx;
+      }
+
+      // ---------- 对端事件 ----------
+      connection.on('CallRejected', function(data){
+        if(rtc.state === 'calling' && rtc.peer && String(data.by) === rtc.peer.id){
+          cleanupRtc();
+          layer.msg('对方拒绝了你的通话邀请', {icon: 0});
+        }
+      });
+
+      connection.on('CallCancelled', function(data){
+        if(rtc.state === 'incoming' && rtc.peer && String(data.by) === rtc.peer.id){
+          cleanupRtc();
+          layer.msg('对方已取消呼叫', {icon: 0, time: 1500});
+        }
+      });
+
+      connection.on('CallEnded', function(data){
+        console.log('[rtc] 收到 CallEnded by=' + (data && data.by) + ' reason=' + (data && data.reason));
+        if(rtc.state === 'idle' || !rtc.peer || String(data.by) !== rtc.peer.id){ return; }
+        var reason = data && data.reason;
+        cleanupRtc();
+        if(reason === 'offline'){
+          layer.msg('对方已离线，通话结束', {icon: 0});
+        } else if(reason === 'left'){
+          layer.msg('对方已离开通话', {icon: 0});
+        } else {
+          layer.msg('对方已结束通话', {icon: 0});
+        }
+      });
+
+      // ---------- 挂断与清理 ----------
+      function hangupWithNotify(){
+        if(rtc.peer){ connection.invoke('CallHangup', rtc.peer.id).catch(function(){}); }
+        cleanupRtc();
+      }
+
+      //真正关闭通话相关弹层（带兜底：个别情况下 layer.close 失效时直接移除 DOM，保证窗口一定能关掉）
+      function closeRtcLayer(){
+        if(rtc.layerIdx == null){ return; }
+        var idx = rtc.layerIdx;
+        rtc.layerIdx = null;
+        rtc.internalClose[idx] = true; //标记为"内部关闭"，end 回调不再当作用户挂断重复处理
+        try{ layer.close(idx); }catch(e){}
+        //兜底：若 layui 未移除节点（如处于最大化等状态异常），稍后强制清掉，避免残留"关不掉的窗口"
+        setTimeout(function(){
+          var $box = $('#layui-layer' + idx);
+          if($box.length){ $box.remove(); }
+          $('#layui-layer-shade' + idx).remove();
+        }, 400);
+      }
+
+      //弹层关闭统一入口：内部关闭只做记录；用户点 × / ESC 主动关闭则按当前阶段等价处理
+      function onRtcLayerEnd(idx, kind){
+        if(rtc.internalClose[idx]){ delete rtc.internalClose[idx]; return; }
+        if(rtc.layerIdx === idx){ rtc.layerIdx = null; }
+        if(kind === 'incoming'){
+          //用户关掉来电弹层 = 拒绝
+          if(rtc.peer){ connection.invoke('CallReject', rtc.peer.id).catch(function(){}); }
+          cleanupRtc();
+          layer.msg('已拒绝来电', {icon: 0, time: 1200});
+        } else if(kind === 'calling'){
+          //用户关掉"呼叫中"窗口 = 取消呼叫
+          if(rtc.state === 'calling' && rtc.peer){ connection.invoke('CallCancel', rtc.peer.id).catch(function(){}); }
+          cleanupRtc();
+        } else {
+          //用户关掉通话窗口 = 挂断
+          hangupWithNotify();
+        }
+      }
+
+      function cleanupRtc(){
+        //重复清理（end→cleanupRtc 之类的重入）直接返回，避免递归关闭弹层
+        if(rtc.state === 'idle' && !rtc.pc && !rtc.localStream && rtc.layerIdx == null){ return; }
+        clearTimeout(rtc.timeoutTimer);
+        clearTimeout(rtc.iceFailTimer);
+        rtc.iceFailTimer = null;
+        clearInterval(rtc.durationTimer);
+        stopRing();
+        if(rtc.pc){ try{ rtc.pc.close(); }catch(e){} rtc.pc = null; }
+        if(rtc.localStream){
+          rtc.localStream.getTracks().forEach(function(t){ t.stop(); });
+          rtc.localStream = null;
+        }
+        closeRtcLayer();
+        rtc.state = 'idle';
+        rtc.peer = null;
+        rtc.pendingIce = null;
+        rtc.muted = false;
+        rtc.camOff = false;
+      }
+
+      // ---------- 来电铃声（复用 LayIM 提示音循环播放） ----------
+      function playRing(){
+        stopRing();
+        try{
+          var a = new Audio(layui.cache.layimAssetsPath + 'voice/default.mp3');
+          a.loop = true;
+          a.play().catch(function(){});
+          rtc.ringAudio = a;
+        }catch(e){}
+      }
+      function stopRing(){
+        if(rtc.ringAudio){
+          rtc.ringAudio.pause();
+          rtc.ringAudio = null;
+        }
+      }
+
+      //刷新/关闭页面前若正在通话，通知对端（断线兜底由服务端 OnDisconnectedAsync 完成）
+      $(window).on('beforeunload.rtc', function(){
+        if(rtc.state !== 'idle' && rtc.peer){
+          connection.invoke('CallHangup', rtc.peer.id);
+        }
+      });
+
+      //触发发送消息 → 通过 SignalR 发送到服务器（服务器保存数据库并转发）
+      layim.on('sendMessage', function(data){
+        var To = data.to;
+        connection.invoke('SendMessage', To.type, String(To.id), data.mine.content).catch(function(err){
+          layer.msg('发送失败：' + err.message);
+          if(String(err.message).indexOf('未登录') > -1){
+            location.reload();
+          }
+        });
+      });
+
+      //修改签名 → 保存到数据库
+      layim.on('sign', function(value){
+        $.ajax({
+          url: '/api/layim/sign'
+          ,type: 'post'
+          ,contentType: 'application/json; charset=utf-8'
+          ,data: JSON.stringify({ sign: value })
+        });
+      });
+
+      //触发自定义工具栏点击，以添加代码为例
+      layim.on('tool(code)', function(insert){
+        layer.prompt({
+          title: '插入代码'
+          ,formType: 2
+          ,shade: 0
+        }, function(text, index){
+          layer.close(index);
+          insert('[pre class=layui-code]' + text + '[/pre]');
+        });
+      });
+
+      //退出登录
+      layim.on('online', function(data){
+        if(data === 'hide'){ /* 隐身 */ }
+      });
+    });
+  }
+
+  function startSignalR(){
+    connection.start().then(function(){
+      console.log('SignalR 已连接');
+    }).catch(function(err){
+      console.error('SignalR 连接失败：', err);
+      layer.msg('实时连接失败，正在重试…');
+      setTimeout(startSignalR, 3000);
+    });
+  }
+
+  // ==================== 退出登录 ====================
+  $('#logout-btn').on('click', function(){
+    layer.confirm('确定要退出登录吗？', {icon: 3, title: '退出登录'}, function(index){
+      layer.close(index);
+      $.ajax({
+        url: '/api/auth/logout'
+        ,type: 'post'
+        ,complete: function(){
+          // 无论成功与否都刷新页面，回到登录层
+          location.reload();
+        }
+      });
+    });
+  });
+
+});
+</script>
+</body>
+</html>
