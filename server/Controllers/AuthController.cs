@@ -1,11 +1,13 @@
 using System.Security.Claims;
 using LayimChat.Data;
+using LayimChat.Hubs;
 using LayimChat.Models;
 using LayimChat.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace LayimChat.Controllers;
@@ -20,11 +22,13 @@ public class AuthController : ControllerBase
 {
     private readonly LayimDbContext _db;
     private readonly IConfiguration _config;
+    private readonly IHubContext<ChatHub> _hub;
 
-    public AuthController(LayimDbContext db, IConfiguration config)
+    public AuthController(LayimDbContext db, IConfiguration config, IHubContext<ChatHub> hub)
     {
         _db = db;
         _config = config;
+        _hub = hub;
     }
 
     /// <summary>当前登录用户</summary>
@@ -47,7 +51,17 @@ public class AuthController : ControllerBase
         {
             code = 0,
             msg = "",
-            data = new { id = user.Id, username = user.Username, avatar = Avatars.OrDefault(user.Avatar), sign = user.Sign, admin = user.IsAdmin }
+            data = new
+            {
+                id = user.Id,
+                username = user.Username,
+                avatar = Avatars.OrDefault(user.Avatar),
+                sign = user.Sign,
+                admin = user.IsAdmin,
+                // 客服身份标识：前端据此进入客服工作台模式（无群组、联系人=访客）
+                kefu = user.Id == ServiceAgent.Id,
+                guest = ServiceAgent.IsGuestName(user.Username)
+            }
         });
     }
 
@@ -119,6 +133,16 @@ public class AuthController : ControllerBase
 
         var guest = await ServiceAgent.CreateGuestAsync(_db);
         await SignInAsync(guest);
+
+        // 通知在线客服有新访客到访，客服端据此把访客加入联系人列表
+        await _hub.Clients.User(ServiceAgent.Id).SendAsync("NewGuest", new
+        {
+            id = guest.Id,
+            username = guest.Username,
+            avatar = Avatars.OrDefault(guest.Avatar),
+            sign = guest.Sign
+        });
+
         return Ok(new
         {
             code = 0,
@@ -137,7 +161,18 @@ public class AuthController : ControllerBase
         }
 
         await SignInAsync(user);
-        return Ok(new { code = 0, msg = "", data = new { id = user.Id, username = user.Username } });
+        return Ok(new
+        {
+            code = 0,
+            msg = "",
+            data = new
+            {
+                id = user.Id,
+                username = user.Username,
+                admin = user.IsAdmin,
+                kefu = user.Id == ServiceAgent.Id
+            }
+        });
     }
 
     [Authorize]

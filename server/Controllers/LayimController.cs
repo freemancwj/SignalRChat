@@ -86,6 +86,66 @@ public class LayimController : ControllerBase
             });
         }
 
+        // 网站客服：联系人是全部访客（最近有消息的排在前面），没有群组
+        if (me.Id == ServiceAgent.Id)
+        {
+            var guests = await _db.Users
+                .Where(u => u.Username.StartsWith(ServiceAgent.GuestPrefix))
+                .ToListAsync();
+
+            // 按「最近一条消息时间」排序访客，方便客服优先处理新会话
+            var recent = await _db.Messages
+                .Where(m => m.ToType == "friend"
+                    && (m.FromUserId == ServiceAgent.Id || m.ToId == ServiceAgent.Id))
+                .Select(m => new { m.FromUserId, m.ToId, m.CreatedAt })
+                .ToListAsync();
+            var lastTimes = recent
+                .Select(m => new
+                {
+                    Partner = m.FromUserId == ServiceAgent.Id ? m.ToId : m.FromUserId,
+                    m.CreatedAt
+                })
+                .GroupBy(x => x.Partner)
+                .ToDictionary(g => g.Key, g => g.Max(x => x.CreatedAt));
+
+            var guestList = guests
+                .OrderByDescending(u => lastTimes.TryGetValue(u.Id, out var t) ? t : DateTime.MinValue)
+                .ThenBy(u => u.Username)
+                .Select(u => new
+                {
+                    username = u.Username,
+                    id = u.Id,
+                    avatar = Avatars.OrDefault(u.Avatar),
+                    sign = u.Sign,
+                    status = ChatHub.IsOnline(u.Id) ? "online" : "offline"
+                })
+                .ToList();
+
+            return Ok(new
+            {
+                code = 0,
+                msg = "",
+                data = new
+                {
+                    mine = new
+                    {
+                        username = me.Username,
+                        id = me.Id,
+                        status = me.Status,
+                        sign = me.Sign,
+                        avatar = Avatars.OrDefault(me.Avatar),
+                        admin = me.IsAdmin,
+                        kefu = true // 前端据此进入客服工作台模式（无群组）
+                    },
+                    friend = new[]
+                    {
+                        new { groupname = "访客", id = "guests", list = guestList }
+                    },
+                    group = Array.Empty<object>()
+                }
+            });
+        }
+
         // 通讯录按群组（部门）组织：第一级为群组，展开显示该群组下的所有成员
         var allGroups = await _db.ChatGroups
             .Include(g => g.Members)

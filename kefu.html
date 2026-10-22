@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>客服工作台 - 登录</title>
+<link rel="stylesheet" href="./layui/css/layui.css">
+<style>
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    font-family:"PingFang SC","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+    background:linear-gradient(135deg,#1E9FFF 0%,#6a5cff 100%);
+    display:flex; align-items:center; justify-content:center;
+    padding:20px;
+  }
+  .login-card{
+    width:100%; max-width:380px; background:#fff; border-radius:14px;
+    box-shadow:0 20px 50px rgba(0,0,0,.25); padding:38px 34px 30px;
+  }
+  .login-card .brand{display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:8px;}
+  .login-card .brand .headset{
+    width:40px; height:40px; border-radius:12px; background:#eaf5ff; color:#1E9FFF;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .login-card h1{font-size:20px; font-weight:500; color:#333; letter-spacing:2px; margin:0; text-align:center;}
+  .login-card .sub{font-size:12px; color:#aaa; text-align:center; margin:10px 0 28px; letter-spacing:1px;}
+  .login-card .field{margin-bottom:16px;}
+  .login-card .field label{display:block; font-size:13px; color:#666; margin-bottom:7px;}
+  .login-card .field input{
+    width:100%; height:42px; padding:0 13px; font-size:14px; color:#333;
+    border:1px solid #e5e5e5; border-radius:8px; outline:none; transition:border-color .2s;
+  }
+  .login-card .field input:focus{border-color:#1E9FFF;}
+  .login-card .btn{
+    width:100%; height:44px; margin-top:8px; border:0; border-radius:8px; cursor:pointer;
+    background:#1E9FFF; color:#fff; font-size:15px; letter-spacing:4px; transition:background .2s;
+  }
+  .login-card .btn:hover{background:#1877d2;}
+  .login-card .btn:disabled{background:#a9d3f7; cursor:not-allowed;}
+  .login-card .err{
+    display:none; margin-top:14px; padding:9px 12px; border-radius:6px;
+    background:#fff2f0; color:#e64a19; font-size:13px; line-height:1.6;
+  }
+  .login-card .foot{margin-top:22px; font-size:12px; color:#bbb; text-align:center;}
+</style>
+</head>
+<body>
+
+<div class="login-card">
+  <div class="brand">
+    <span class="headset">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2a8 8 0 0 0-8 8v5a3 3 0 0 0 3 3h1a1 1 0 0 0 1-1v-6a1 1 0 0 0-1-1H6.06A6 6 0 0 1 12 4a6 6 0 0 1 5.94 6H16a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1a3 3 0 0 0 3-3v-5a8 8 0 0 0-8-8z"/></svg>
+    </span>
+  </div>
+  <h1>客服工作台</h1>
+  <div class="sub">请使用客服账号登录，登录后即可接待网站访客</div>
+
+  <form id="login-form" autocomplete="off">
+    <div class="field">
+      <label>账号</label>
+      <input type="text" id="username" placeholder="客服账号" required>
+    </div>
+    <div class="field">
+      <label>密码</label>
+      <input type="password" id="password" placeholder="登录密码" required>
+    </div>
+    <button type="submit" class="btn" id="submit-btn">登 录</button>
+    <div class="err" id="err"></div>
+  </form>
+
+  <div class="foot">仅供客服人员使用 · 访客无需登录</div>
+</div>
+
+<script>
+(function(){
+  var $form = document.getElementById('login-form');
+  var $user = document.getElementById('username');
+  var $pwd = document.getElementById('password');
+  var $btn = document.getElementById('submit-btn');
+  var $err = document.getElementById('err');
+
+  function showErr(msg){
+    $err.textContent = msg;
+    $err.style.display = 'block';
+  }
+  function go(){ location.href = '/index.html?kefu=1'; }
+
+  // 已有客服登录态 → 直接进入工作台
+  fetch('/api/auth/me').then(function(r){ return r.json(); }).then(function(res){
+    if(res.code === 0 && res.data && res.data.kefu){ go(); }
+  }).catch(function(){});
+
+  $form.addEventListener('submit', function(e){
+    e.preventDefault();
+    var username = $user.value.trim(), password = $pwd.value;
+    if(!username){ showErr('请输入客服账号'); return; }
+    if(!password){ showErr('请输入登录密码'); return; }
+
+    $err.style.display = 'none';
+    $btn.disabled = true;
+    $btn.textContent = '登录中...';
+
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username, password: password })
+    }).then(function(r){ return r.json(); }).then(function(res){
+      if(res.code !== 0){
+        showErr(res.msg || '用户名或密码错误');
+        return;
+      }
+      if(res.data && res.data.kefu){
+        go();
+        return;
+      }
+      // 非客服账号：撤销本次登录，提示改用客服账号
+      return fetch('/api/auth/logout', { method: 'POST' }).then(function(){
+        showErr('「' + username + '」不是客服账号，请使用客服账号登录');
+      });
+    }).catch(function(){
+      showErr('网络错误，请稍后重试');
+    }).then(function(){
+      $btn.disabled = false;
+      $btn.textContent = '登 录';
+    });
+  });
+})();
+</script>
+</body>
+</html>

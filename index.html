@@ -179,11 +179,13 @@
     #layui-layim-chat .layim-chat-other img{width:42px; height:42px;}
     #layui-layim-chat .layim-chat-username{font-size:16px;}
 
-    /* 通用弹层（群组管理、加群、个人资料、头像等）：不超出屏幕，内容可滚动 */
-    .layui-layer:not(#layui-layim):not(#layui-layim-chat){
+    /* 通用弹层（群组管理、加群、个人资料、头像等）：不超出屏幕，内容可滚动。
+       注意：layer 的 id 参数（layui-layim / layui-layim-chat）在内容 div 上，层元素本身 id 是 layui-layer{N}，
+       排除主面板和聊天窗口必须用 skin 类名（.layui-layim / .layui-layim-chat），否则聊天窗口会被 max-width 压窄 */
+    .layui-layer:not(.layui-layim):not(.layui-layim-chat){
       max-width:94vw !important; max-height:92vh !important; max-height:92dvh !important;
     }
-    .layui-layer:not(#layui-layim):not(#layui-layim-chat) .layui-layer-content{overflow:auto !important;}
+    .layui-layer:not(.layui-layim):not(.layui-layim-chat) .layui-layer-content{overflow:auto !important;}
     .layui-layer-title{font-size:14px;}
     /* 聊天记录、消息盒子等 iframe 弹层 */
     .layui-layer-page .layui-layer-content iframe{max-width:100%;}
@@ -232,7 +234,9 @@
   html.embed-mode #layui-layim-chat .layim-chat-main ul li{padding-left:48px; margin-bottom:8px; min-height:56px;}
   html.embed-mode #layui-layim-chat .layim-chat-main ul li.layim-chat-mine{padding-left:0; padding-right:48px;}
   html.embed-mode #layui-layim-chat .layim-chat-text{max-width:calc(100% - 108px);}
-  html.embed-mode #layui-layim-chat .layim-chat-user cite{width:auto !important; max-width:calc(100% - 120px);}
+  /* cite 是绝对定位元素，包含块是 ~34px 的 .layim-chat-user 头像盒，max-width 用 100% 会得到负值被钳为 0，
+     导致不换行的时间文本溢出压到头像上，必须用 100vw（相对聊天窗口宽度） */
+  html.embed-mode #layui-layim-chat .layim-chat-user cite{width:auto !important; max-width:calc(100vw - 120px);}
   </style>
 </head>
 <body>
@@ -260,6 +264,8 @@ if(EMBED){
 // 网站首页侧边栏客服图标 → iframe /index.html?embed=1&guest=1：
 // 免登录自动生成临时访客账号（随机用户名），进入后直接打开与「在线客服」的会话窗口。
 var GUEST = /([?&])guest=1(&|$)/.test(location.search);
+// 客服工作台模式标记（URL 带 kefu=1，或服务端返回 mine.kefu）：退出登录时回到客服专用登录页
+var KEFU_PAGE = /([?&])kefu=1(&|$)/.test(location.search);
 function notifyHost(type, payload){
   if(!EMBED || window.parent === window){ return; }
   try{
@@ -452,6 +458,16 @@ layui.use(['jquery', 'layer', 'form'], function(){
         notifyHost('cxim:message', {username: msg.username, content: msg.content, id: msg.id, chatType: msg.type});
       });
 
+      // 客服端：访客发消息时在聊天窗口顶部显示访客用户名（而不是自己的用户名）
+      connection.on('ReceiveMessage', function(msg){
+        if(KEFU_MODE && msg.type === 'friend'){
+          var chatWin = $('.layim-chat-friend' + msg.id);
+          if(chatWin.length){
+            chatWin.find('.layim-chat-username').text(msg.username);
+          }
+        }
+      });
+
       //好友上下线状态
       connection.on('FriendStatus', function(data){
         if(layim.setFriendStatus){
@@ -467,6 +483,20 @@ layui.use(['jquery', 'layer', 'form'], function(){
         if(data.status === 'online'){
           layim.setChatStatus('<span style="color:#5FB878;">在线</span>');
         }
+      });
+
+      //新访客到访（仅客服端会收到）：把访客加入「访客」分组，客服可立即看到并接待
+      connection.on('NewGuest', function(data){
+        if(!data || !data.id){ return; }
+        layim.addList({
+          type: 'friend',
+          groupid: 'guests',
+          id: String(data.id),
+          username: data.username,
+          avatar: data.avatar || DEF_AVATAR_URL,
+          sign: data.sign || '网站访客',
+          status: 'online'
+        });
       });
 
       //管理员删除群组：所有在线成员同步移除该群
@@ -610,6 +640,15 @@ layui.use(['jquery', 'layer', 'form'], function(){
           return; // 以下为企业用户的头部/工具栏增强，访客全部跳过
         }
 
+        // ---------- 客服工作台模式：没有群组，联系人是访客列表 ----------
+        var KEFU_MODE = !!(res.mine && res.mine.kefu);
+        if(KEFU_MODE){
+          KEFU_PAGE = true;
+          // 隐藏「群组」选项卡：LayIM 的选项卡按索引切换，只能隐藏不能删除
+          $('.layui-layim-tab > li[lay-type="group"]').addClass('layim-hide');
+          $('.layui-layim-tab-content').eq(1).removeClass('layui-show');
+        }
+
         // 面板头部调整为：我的头像 → 用户名 → 退出按钮（不再显示状态圆点）
         var $user = $('.layui-layim-user').first();
         $('.layui-layim-status').hide();          // 状态圆点及状态下拉入口不再展示
@@ -629,12 +668,15 @@ layui.use(['jquery', 'layer', 'form'], function(){
           .prependTo($('.layui-layim-info').first());
 
         // 面板底部工具栏加「加群/退群」入口（LayIM 没有现成按钮，注入到工具栏最左侧）
-        $('<li class="layui-icon" id="group-manage-btn" title="加群 / 退群">&#xe654;</li>')
-          .on('click', openGroupManage)
-          .prependTo($('.layui-layim-tool').first());
+        // 客服工作台不显示群组，因此跳过这些入口
+        if(!KEFU_MODE){
+          $('<li class="layui-icon" id="group-manage-btn" title="加群 / 退群">&#xe654;</li>')
+            .on('click', openGroupManage)
+            .prependTo($('.layui-layim-tool').first());
+        }
 
         // 超级管理员额外显示「群组管理」入口（新建群、删除群、移除群成员）
-        if(res.mine && res.mine.admin){
+        if(!KEFU_MODE && res.mine && res.mine.admin){
           $('<li class="layui-icon" id="group-admin-btn" title="群组管理">&#xe614;</li>')
             .on('click', openGroupAdmin)
             .prependTo($('.layui-layim-tool').first());
@@ -1945,7 +1987,9 @@ layui.use(['jquery', 'layer', 'form'], function(){
         ,complete: function(){
           // 内嵌模式：先通知宿主页面（宿主通常会关闭面板或重新走 SSO）
           notifyHost('cxim:logout');
-          // 无论成功与否都刷新页面，回到登录层
+          // 客服工作台：退出后回到客服专用登录页（该页没有注册入口）
+          if(KEFU_PAGE){ location.href = '/kefu.html'; return; }
+          // 其他模式：刷新页面，回到登录层
           location.reload();
         }
       });
