@@ -15,7 +15,7 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
     WebRootPath = webRoot
 });
 
-// 数据库提供程序切换：appsettings.json → Database:Provider = Sqlite / SqlServer / MySql
+// 数据库提供程序切换：appsettings.json → Database:Provider = Sqlite / SqlServer / MySql / PostgreSql
 // 也可通过环境变量 Database__Provider 覆盖
 var dbSection = builder.Configuration.GetSection("Database");
 var dbProvider = (dbSection["Provider"] ?? "Sqlite").Trim();
@@ -34,6 +34,11 @@ builder.Services.AddDbContext<LayimDbContext>(options =>
             // AutoDetect 会在启动时连接数据库探测版本
             options.UseMySql(connStr, ServerVersion.AutoDetect(connStr));
             break;
+        case "postgresql":
+        case "postgres":
+        case "pgsql":
+            options.UseNpgsql(dbSection["PostgreSql"]);
+            break;
         default:
             options.UseSqlite(dbSection["Sqlite"]);
             break;
@@ -51,7 +56,15 @@ builder.Services
     {
         options.Cookie.Name = ".layim.auth";
         options.Cookie.HttpOnly = true;
-        options.Cookie.SameSite = SameSiteMode.Lax;
+        // 独立使用 / 同主域内嵌：Lax 即可；跨站点 iframe 内嵌需配置 Cookie:SameSite=None（必须 HTTPS）
+        var sameSite = builder.Configuration["Cookie:SameSite"] ?? "Lax";
+        options.Cookie.SameSite = Enum.TryParse<SameSiteMode>(sameSite, true, out var mode)
+            ? mode
+            : SameSiteMode.Lax;
+        if (options.Cookie.SameSite == SameSiteMode.None)
+        {
+            options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        }
         options.ExpireTimeSpan = TimeSpan.FromDays(7);
         // API 场景：未认证时直接返回 401，不做 302 跳转
         options.Events.OnRedirectToLogin = ctx =>

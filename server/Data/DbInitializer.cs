@@ -19,7 +19,7 @@ public static class DbInitializer
 
     /// <summary>
     /// 轻量 schema 补丁：为既有数据库补充后加的列（EnsureCreated 不会修改已存在的表）。
-    /// 各数据库的标识符引用语法不同：SqlServer 用 []，MySql 用 ``，Sqlite 两种都认。
+    /// 各数据库的标识符引用语法不同：SqlServer 用 []，MySql 用 ``，PostgreSql 用 ""，Sqlite 两种都认。
     /// </summary>
     private static void PatchSchema(LayimDbContext db, string provider)
     {
@@ -33,6 +33,10 @@ public static class DbInitializer
                 "SELECT `LastSeenAt` FROM `Users` LIMIT 1",
                 "ALTER TABLE `Users` ADD COLUMN `LastSeenAt` datetime NULL",
                 "UPDATE `Users` SET `LastSeenAt` = UTC_TIMESTAMP() WHERE `LastSeenAt` IS NULL"),
+            "PostgreSql" => (
+                "SELECT \"LastSeenAt\" FROM \"Users\" LIMIT 1",
+                "ALTER TABLE \"Users\" ADD COLUMN \"LastSeenAt\" timestamp with time zone NULL",
+                "UPDATE \"Users\" SET \"LastSeenAt\" = CURRENT_TIMESTAMP WHERE \"LastSeenAt\" IS NULL"),
             _ => (
                 "SELECT [LastSeenAt] FROM [Users] LIMIT 1",
                 "ALTER TABLE [Users] ADD COLUMN [LastSeenAt] TEXT NULL",
@@ -54,6 +58,9 @@ public static class DbInitializer
             "MySql" => (
                 "SELECT `IsAdmin` FROM `Users` LIMIT 1",
                 "ALTER TABLE `Users` ADD COLUMN `IsAdmin` tinyint(1) NOT NULL DEFAULT 0"),
+            "PostgreSql" => (
+                "SELECT \"IsAdmin\" FROM \"Users\" LIMIT 1",
+                "ALTER TABLE \"Users\" ADD COLUMN \"IsAdmin\" boolean NOT NULL DEFAULT FALSE"),
             _ => (
                 "SELECT [IsAdmin] FROM [Users] LIMIT 1",
                 "ALTER TABLE [Users] ADD COLUMN [IsAdmin] INTEGER NOT NULL DEFAULT 0")
@@ -153,6 +160,9 @@ public static class DbInitializer
 
         // 每次启动都确保超级管理员存在（老库升级后也能补上）
         EnsureAdmin(db);
+
+        // 每次启动都确保网站客服账号存在（访客聊天模式的固定接待账号）
+        Services.ServiceAgent.EnsureAgent(db);
     }
 
     private static void SeedDemoData(LayimDbContext db)

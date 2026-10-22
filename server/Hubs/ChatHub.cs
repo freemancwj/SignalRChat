@@ -35,8 +35,10 @@ public class ChatHub : Hub
     /// <summary>用户在线连接数（内存计数：同一用户多标签页/多浏览器时，最后一个连接断开才算离线）</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> OnlineCounts = new();
 
-    /// <summary>用户当前是否有至少一个在线连接（供 init 接口标记好友在线状态）</summary>
-    public static bool IsOnline(string userId) => OnlineCounts.ContainsKey(userId);
+    /// <summary>用户当前是否有至少一个在线连接（供 init 接口标记好友在线状态）。
+    /// 客服账号特判为恒在线：访客侧始终显示「在线」，客服不在线时消息按离线消息落库、上线后补推。</summary>
+    public static bool IsOnline(string userId)
+        => userId == ServiceAgent.Id || OnlineCounts.ContainsKey(userId);
 
     /// <summary>用户ID -> 其当前所有连接ID（加群/退群时需要把该用户所有连接同步到 SignalR 组）</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentDictionary<string, byte>> UserConnections = new();

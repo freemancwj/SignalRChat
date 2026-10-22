@@ -93,6 +93,40 @@ public class AuthController : ControllerBase
         return Ok(new { code = 0, msg = "", data = new { id = user.Id, username = user.Username } });
     }
 
+    /// <summary>
+    /// 网站访客免登录入口：已带访客/正式登录态的直接返回当前用户；
+    /// 否则创建临时访客账号（随机用户名，只与客服互为好友）并写入会话 Cookie。
+    /// </summary>
+    [HttpPost("guest")]
+    public async Task<IActionResult> Guest()
+    {
+        var uid = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (uid != null)
+        {
+            var cur = await _db.Users.FindAsync(uid);
+            // 只有当前身份本身就是访客时才复用；若浏览器带着正式员工的登录 Cookie，
+            // 仍以访客身份进入（客服面板的定位是“对外接待”，身份以访客为准）
+            if (cur != null && ServiceAgent.IsGuestName(cur.Username))
+            {
+                return Ok(new
+                {
+                    code = 0,
+                    msg = "",
+                    data = new { id = cur.Id, username = cur.Username, guest = true }
+                });
+            }
+        }
+
+        var guest = await ServiceAgent.CreateGuestAsync(_db);
+        await SignInAsync(guest);
+        return Ok(new
+        {
+            code = 0,
+            msg = "",
+            data = new { id = guest.Id, username = guest.Username, guest = true }
+        });
+    }
+
     [HttpPost("login")]
     public async Task<IActionResult> Login([FromBody] AuthRequest req)
     {
@@ -225,7 +259,11 @@ public class AuthController : ControllerBase
         }
 
         await SignInAsync(user);
-        return Redirect("/index.html");
+        // embed=1：内嵌场景，跳转后在 iframe 中铺满面板
+        var target = HttpContext.Request.Query["embed"].ToString() == "1"
+            ? "/index.html?embed=1"
+            : "/index.html";
+        return Redirect(target);
     }
 
     private static string HmacHex(string secret, string message)

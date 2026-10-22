@@ -70,6 +70,26 @@
   /* 去掉用户名前的状态圆点（含状态下拉入口） */
   body .layui-layim-status{display:none !important;}
 
+  /* 聊天消息窗口背景固定为纯白，不使用背景图片
+     （皮肤系统会用内联样式给聊天窗口写 background-image，必须 !important 才能覆盖） */
+  .layui-layer.layui-layim-chat{
+    background-image: none !important;
+    background-color: #fff !important;
+  }
+
+  /* 聊天输入区工具栏右侧「聊天记录」：缩小字号，与左侧工具图标视觉对齐 */
+  .layim-chat-tool .layim-tool-log{
+    font-size: 12px;
+    color: #999;
+    right: 12px;
+  }
+  .layim-chat-tool .layim-tool-log:hover{color: #666;}
+  .layim-chat-tool .layim-tool-log i{
+    font-size: 14px;
+    top: 1px;
+    margin-right: 3px;
+  }
+
   /* 用户名文字：轻字重 + 字间距，视觉更秀气；头部还要放头像/退出按钮，限制宽度避免撑破 260px 面板 */
   body .layui-layim-info .layui-layim-user{
     max-width: 130px;
@@ -122,15 +142,15 @@
     #layui-layim .layim-tab-content{height:calc(100dvh - 170px) !important; min-height:160px;}
     #layui-layim .layui-layim-search input{width:calc(100vw - 60px);}
 
-    /* 聊天窗口：全屏覆盖主面板 */
-    #layui-layim-chat{
+    /* 聊天窗口：全屏覆盖主面板。
+       注意：LayIM 的层元素是 .layui-layer.layui-layim-chat，
+       #layui-layim-chat 是其内容容器（高度按百分比跟随层） */
+    .layui-layer.layui-layim-chat{
       left:0 !important; top:0 !important; right:auto !important; bottom:auto !important;
       width:100vw !important; height:100vh !important; height:100dvh !important;
       min-width:0 !important; min-height:0 !important; border-radius:0 !important;
     }
-    #layui-layim-chat .layui-layer-content{
-      position:static !important; height:auto !important; overflow:hidden !important;
-    }
+    #layui-layim-chat{height:100% !important; overflow:hidden !important;}
     #layui-layim-chat .layim-chat-box{margin-left:0 !important;}
     /* 隐藏左侧多会话切换栏，把宽度让给消息区 */
     #layui-layim-chat .layim-chat-list{display:none !important;}
@@ -181,6 +201,38 @@
     #layui-layim-chat .layim-chat-tool span{margin:0 5px; font-size:19px;}
     #layui-layim-chat .layim-chat-text{max-width:calc(100vw - 92px);}
   }
+
+  /* ===== 内嵌模式（办公系统页面右下角图标 → iframe?embed=1）：面板铺满 iframe ===== */
+  html.embed-mode, html.embed-mode body{background:#f5f6f7 !important; overflow:hidden !important;}
+  html.embed-mode #layui-layim{
+    left:0 !important; top:0 !important; right:auto !important; bottom:auto !important;
+    width:100vw !important; height:100vh !important; height:100dvh !important;
+    margin:0 !important; border-radius:0 !important; box-shadow:none !important;
+  }
+  html.embed-mode #layui-layim .layui-layer-title{height:80px !important;}
+  html.embed-mode #layui-layim .layim-tab-content{height:calc(100% - 170px) !important; min-height:120px;}
+  html.embed-mode #layui-layim .layui-layim-search input{width:calc(100% - 24px);}
+  /* 聊天窗口铺满 iframe，关闭按钮回到主面板（层元素是 .layui-layer.layui-layim-chat） */
+  html.embed-mode .layui-layer.layui-layim-chat{
+    left:0 !important; top:0 !important; right:auto !important; bottom:auto !important;
+    width:100vw !important; height:100vh !important; height:100dvh !important;
+    min-width:0 !important; min-height:0 !important;
+    border-radius:0 !important;
+  }
+  html.embed-mode #layui-layim-chat{height:100% !important; overflow:hidden !important;}
+  html.embed-mode #layui-layim-chat .layim-chat-list{display:none !important;}
+  html.embed-mode #layui-layim-chat .layim-chat-box{margin-left:0 !important;}
+  html.embed-mode #layui-layim-chat .layim-chat-main{
+    position:fixed; left:0; right:0; top:80px; bottom:142px;
+    height:auto !important; padding:10px 8px 5px;
+  }
+  html.embed-mode #layui-layim-chat .layim-chat-footer{position:fixed; left:0; right:0; bottom:0; z-index:5; background:#F6F6F6;}
+  html.embed-mode #layui-layim-chat .layim-chat-textarea textarea{height:52px;}
+  html.embed-mode #layui-layim-chat .layim-chat-tool span{margin:0 7px; font-size:21px;}
+  html.embed-mode #layui-layim-chat .layim-chat-main ul li{padding-left:48px; margin-bottom:8px; min-height:56px;}
+  html.embed-mode #layui-layim-chat .layim-chat-main ul li.layim-chat-mine{padding-left:0; padding-right:48px;}
+  html.embed-mode #layui-layim-chat .layim-chat-text{max-width:calc(100% - 108px);}
+  html.embed-mode #layui-layim-chat .layim-chat-user cite{width:auto !important; max-width:calc(100% - 120px);}
   </style>
 </head>
 <body>
@@ -197,6 +249,27 @@ if(!/^http(s*):\/\//.test(location.href)){
   alert('请部署到 localhost 上查看该演示');
 }
 
+// ==================== 内嵌模式 ====================
+// 办公系统页面右下角图标 → iframe /index.html?embed=1：面板铺满 iframe，
+// 并通过 postMessage 把新消息、退出登录等事件通知宿主页面（见 embed.js）。
+var EMBED = /([?&])embed=1(&|$)/.test(location.search);
+if(EMBED){
+  document.documentElement.className += ' embed-mode';
+}
+// ==================== 网站客服访客模式 ====================
+// 网站首页侧边栏客服图标 → iframe /index.html?embed=1&guest=1：
+// 免登录自动生成临时访客账号（随机用户名），进入后直接打开与「在线客服」的会话窗口。
+var GUEST = /([?&])guest=1(&|$)/.test(location.search);
+function notifyHost(type, payload){
+  if(!EMBED || window.parent === window){ return; }
+  try{
+    var msg = payload || {};
+    msg.source = 'cxim';
+    msg.type = type;
+    parent.postMessage(msg, '*');
+  }catch(e){}
+}
+
 layui.use(['jquery', 'layer', 'form'], function(){
   var $ = layui.jquery
   ,layer = layui.layer
@@ -206,14 +279,24 @@ layui.use(['jquery', 'layer', 'form'], function(){
   var layim = null;
   var loginLayerIndex = null;
 
-  // ==================== 入口：检查登录态 ====================
-  $.get('/api/auth/me', function(res){
-    if(res.code === 0){
-      bootLayim();
-    } else {
-      showLogin();
-    }
-  });
+  // ==================== 入口：检查登录态（访客模式免登录） ====================
+  if(GUEST){
+    // 网站客服访客：没有登录态时自动创建临时访客账号；已有访客 Cookie 则直接复用（幂等）
+    $.post('/api/auth/guest', function(res){
+      if(res.code === 0){ bootLayim(); }
+      else { layer.msg(res.msg || '客服系统繁忙，请稍后再试', {icon: 2}); }
+    }).fail(function(){
+      layer.msg('网络错误，无法连接客服系统', {icon: 2});
+    });
+  } else {
+    $.get('/api/auth/me', function(res){
+      if(res.code === 0){
+        bootLayim();
+      } else {
+        showLogin();
+      }
+    });
+  }
 
   // ==================== 登录 / 注册面板 ====================
   function showLogin(){
@@ -365,6 +448,8 @@ layui.use(['jquery', 'layer', 'form'], function(){
       //收到新消息
       connection.on('ReceiveMessage', function(msg){
         layim.getMessage(msg);
+        // 内嵌模式：通知宿主页面有新消息（宿主可据此显示未读红点/提示音）
+        notifyHost('cxim:message', {username: msg.username, content: msg.content, id: msg.id, chatType: msg.type});
       });
 
       //好友上下线状态
@@ -372,6 +457,13 @@ layui.use(['jquery', 'layer', 'form'], function(){
         if(layim.setFriendStatus){
           layim.setFriendStatus(String(data.id), data.status);
         }
+        // 保持「在线用户排在离线用户之前」：上线移到分组顶部，下线移到分组底部
+        // （同一用户可能出现在多个群组中，逐个调整）
+        $('.layim-friend' + String(data.id)).each(function(){
+          var ul = $(this).parent('ul');
+          if(!ul.length){ return; }
+          if(data.status === 'online'){ ul.prepend(this); } else { ul.append(this); }
+        });
         if(data.status === 'online'){
           layim.setChatStatus('<span style="color:#5FB878;">在线</span>');
         }
@@ -462,7 +554,7 @@ layui.use(['jquery', 'layer', 'form'], function(){
           alias: 'videocall'
           ,title: '视频通话'
           ,icon: '&#xe65d;'
-        }]
+        }].filter(function(t){ return !GUEST || t.alias !== 'videocall'; }) // 访客不开放视频通话（客服可能不在电脑前，避免呼叫悬空）
 
         ,initSkin: '5.jpg'
         ,notice: true //开启桌面消息提醒
@@ -498,9 +590,26 @@ layui.use(['jquery', 'layer', 'form'], function(){
       //触发layim建立就绪后，启动 SignalR 连接
       layim.on('ready', function(res){
         startSignalR();
+        // 内嵌模式：通知宿主页面已就绪（宿主可据此关闭"加载中"状态）
+        notifyHost('cxim:ready', {username: res && res.mine ? res.mine.username : ''});
         // 记录本次页面启动时的登录身份：同一浏览器多标签共享 Cookie，
         // 若 Cookie 被另一个账号覆盖，重连后服务端会把我认成另一个人（详见 onreconnected 校验）
         if(res && res.mine && res.mine.id){ bootedUserId = String(res.mine.id); }
+
+        // ---------- 网站访客模式：精简界面，直接打开与客服的会话 ----------
+        if(res.mine && res.mine.guest){
+          $('#logout-btn').remove();                  // 访客无退出登录
+          $('.layui-layim-remark').remove();          // 签名编辑
+          $('.layui-layim-tool').remove();            // 底部工具栏（搜索/换肤/加群等）
+          $('.layui-layim-tab li').not(':first').remove(); // 只保留「联系人」选项卡
+          // 直接打开与在线客服的会话窗口
+          var agent = res.friend && res.friend[0] && res.friend[0].list && res.friend[0].list[0];
+          if(agent){
+            layim.chat({name: agent.username, type: 'friend', id: String(agent.id), avatar: agent.avatar});
+          }
+          return; // 以下为企业用户的头部/工具栏增强，访客全部跳过
+        }
+
         // 面板头部调整为：我的头像 → 用户名 → 退出按钮（不再显示状态圆点）
         var $user = $('.layui-layim-user').first();
         $('.layui-layim-status').hide();          // 状态圆点及状态下拉入口不再展示
@@ -1137,7 +1246,8 @@ layui.use(['jquery', 'layer', 'form'], function(){
       }
 
       // ===== 语音消息（MediaRecorder 录音 → 上传 → 发送 audio[url]） =====
-      var voiceRec = null; // {rec, stream, chunks, startAt, timer, layerIdx, $textarea}
+      var voiceRec = null; // {rec, stream, chunks, startAt, timer, layerIdx, $textarea, asr, asrFinal}
+      var VOICE_MAX_SECONDS = 1800; // 录音上限 30 分钟（原 60 秒限制已取消；需要可自行调大/调小）
 
       layim.on('tool(voice)', function(insert, send, chat){
         if(voiceRec){
@@ -1155,24 +1265,32 @@ layui.use(['jquery', 'layer', 'form'], function(){
           var startAt = Date.now();
 
           // 先占位（layer.open 的 success 回调同步执行，需要引用本对象）
-          voiceRec = {rec: rec, stream: stream, chunks: chunks, startAt: startAt, timer: null, layerIdx: null, $textarea: chat.textarea, $time: null};
+          voiceRec = {rec: rec, stream: stream, chunks: chunks, startAt: startAt, timer: null, layerIdx: null, $textarea: chat.textarea, $time: null, $asrText: null, $asrHint: null, asr: null, asrFinal: '', asrStopped: false};
 
           var layerIdx = layer.open({
             type: 1
             ,title: false
             ,closeBtn: 0
             ,shade: 0
-            ,area: ['300px', '150px']
-            ,content: '<div style="padding:20px 15px; text-align:center;">'
+            ,area: ['320px', '196px']
+            ,content: '<div style="padding:18px 15px; text-align:center;">'
               + '<div style="color:#FF5722; font-size:14px;">● 正在录音 <span class="vr-time">00:00</span></div>'
-              + '<div style="margin-top:16px;">'
+              + '<div class="vr-asr" style="margin-top:8px; height:18px; color:#1E9FFF; font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>'
+              + '<div style="margin-top:14px;">'
               + '<button type="button" class="layui-btn layui-btn-primary layui-btn-sm vr-cancel">取消</button> '
               + '<button type="button" class="layui-btn layui-btn-sm vr-send">停止并发送</button>'
               + '</div>'
-              + '<div style="margin-top:10px; color:#999; font-size:12px;">最长 60 秒，到时自动发送</div>'
+              + '<div class="vr-hint" style="margin-top:10px; color:#999; font-size:12px;">最长 30 分钟，可随时点击「停止并发送」</div>'
               + '</div>'
             ,success: function(layero){
-              if(voiceRec){ voiceRec.$time = layero.find('.vr-time'); }
+              if(voiceRec){
+                voiceRec.$time = layero.find('.vr-time');
+                voiceRec.$asrText = layero.find('.vr-asr');
+                voiceRec.$asrHint = layero.find('.vr-hint');
+                if(!(window.SpeechRecognition || window.webkitSpeechRecognition)){
+                  voiceRec.$asrText.text('当前浏览器不支持语音转文字');
+                }
+              }
               layero.find('.vr-cancel').on('click', function(){ stopVoice(false); });
               layero.find('.vr-send').on('click', function(){ stopVoice(true); });
             }
@@ -1191,14 +1309,55 @@ layui.use(['jquery', 'layer', 'form'], function(){
             if(voiceRec && voiceRec.$time){
               voiceRec.$time.text(('0' + Math.floor(s / 60)).slice(-2) + ':' + ('0' + (s % 60)).slice(-2));
             }
-            if(s >= 60){ stopVoice(true); }
+            if(s >= VOICE_MAX_SECONDS){ stopVoice(true); }
           }, 500);
 
           rec.start();
+          startVoiceAsr();
         }).catch(function(){
           layer.msg('无法访问麦克风，请在浏览器地址栏允许麦克风权限', {icon: 2});
         });
       });
+
+      //语音识别：录音期间用浏览器 Web Speech API 实时转写（Chrome/Edge 支持中文），
+      //识别结果随语音消息一起发送，接收方与聊天记录中都能看到文字。
+      function startVoiceAsr(){
+        var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if(!SR || !voiceRec){ return; }
+        var vr = voiceRec;
+        var r = new SR();
+        r.lang = 'zh-CN';
+        r.continuous = true;
+        r.interimResults = true;
+        r.onresult = function(e){
+          var interim = '';
+          for(var i = e.resultIndex; i < e.results.length; i++){
+            var seg = e.results[i][0].transcript || '';
+            if(e.results[i].isFinal){ vr.asrFinal += seg; }
+            else { interim += seg; }
+          }
+          if(vr.$asrText){
+            var preview = vr.asrFinal + interim;
+            if(preview){
+              vr.$asrText.text(preview.length > 46 ? '…' + preview.slice(-46) : preview);
+            }
+          }
+        };
+        r.onerror = function(ev){
+          // 网络不可达（如无法访问识别服务）或权限被拒时静默降级：只发语音
+          if(vr.$asrHint && (ev.error === 'network' || ev.error === 'service-not-allowed' || ev.error === 'not-allowed')){
+            vr.$asrHint.text('语音转文字不可用，本次仅发送语音');
+          }
+        };
+        r.onend = function(){
+          // 浏览器在停顿后会自动结束识别，录音仍在进行时自动续上
+          if(vr.asr === r && !vr.asrStopped){
+            try{ r.start(); }catch(e){}
+          }
+        };
+        vr.asr = r;
+        try{ r.start(); }catch(e){}
+      }
 
       function stopVoice(sendIt){
         var vr = voiceRec;
@@ -1207,6 +1366,9 @@ layui.use(['jquery', 'layer', 'form'], function(){
         clearInterval(vr.timer);
         layer.close(vr.layerIdx);
         var duration = Date.now() - vr.startAt;
+        var transcript = $.trim(vr.asrFinal || '');
+        vr.asrStopped = true;
+        if(vr.asr){ try{ vr.asr.stop(); }catch(e){} }
         vr.rec.onstop = function(){
           vr.stream.getTracks().forEach(function(t){ t.stop(); });
           if(!sendIt){ return; }
@@ -1215,13 +1377,14 @@ layui.use(['jquery', 'layer', 'form'], function(){
             return;
           }
           var blob = new Blob(vr.chunks, {type: vr.rec.mimeType || 'audio/webm'});
-          uploadVoice(blob, vr.$textarea);
+          uploadVoice(blob, vr.$textarea, transcript);
         };
         try{ vr.rec.stop(); }catch(e){ vr.stream.getTracks().forEach(function(t){ t.stop(); }); }
       }
 
-      //上传语音并复用 LayIM 回车发送管线（audio[url] 由 LayIM 渲染为可播放的音频气泡）
-      function uploadVoice(blob, $textarea){
+      //上传语音并复用 LayIM 回车发送管线（audio[url] 由 LayIM 渲染为可播放的音频气泡；
+      //识别出的文字追加在音频后面，随消息一起入库，接收方和聊天记录都能显示）
+      function uploadVoice(blob, $textarea, transcript){
         var fd = new FormData();
         fd.append('file', blob, 'voice-' + Date.now() + '.webm');
         var loadIdx = layer.load(1);
@@ -1234,7 +1397,8 @@ layui.use(['jquery', 'layer', 'form'], function(){
           ,success: function(res){
             layer.close(loadIdx);
             if(res.code === 0 && res.data && res.data.src){
-              $textarea.val($textarea.val() + 'audio[' + res.data.src + ']');
+              var text = $.trim(transcript || '');
+              $textarea.val($textarea.val() + 'audio[' + res.data.src + ']' + (text ? '\n【语音转写】' + text : ''));
               $textarea.trigger($.Event('keydown', {keyCode: 13, which: 13}));
             } else {
               layer.msg(res.msg || '上传失败', {icon: 2});
@@ -1779,6 +1943,8 @@ layui.use(['jquery', 'layer', 'form'], function(){
         url: '/api/auth/logout'
         ,type: 'post'
         ,complete: function(){
+          // 内嵌模式：先通知宿主页面（宿主通常会关闭面板或重新走 SSO）
+          notifyHost('cxim:logout');
           // 无论成功与否都刷新页面，回到登录层
           location.reload();
         }

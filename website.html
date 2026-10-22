@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>云启科技 - 演示官网</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"PingFang SC","Microsoft YaHei",sans-serif; color:#333; background:#fff; }
+
+  /* ---------- 顶部导航 ---------- */
+  .nav { position:fixed; top:0; left:0; right:0; height:64px; background:rgba(255,255,255,.95);
+         box-shadow:0 1px 6px rgba(0,0,0,.08); display:flex; align-items:center; padding:0 40px; z-index:100; }
+  .nav .logo { font-size:22px; font-weight:600; color:#1E9FFF; letter-spacing:1px; }
+  .nav .logo span { color:#333; }
+  .nav ul { display:flex; list-style:none; margin-left:auto; }
+  .nav ul li { margin-left:34px; font-size:15px; color:#555; cursor:pointer; }
+  .nav ul li:hover { color:#1E9FFF; }
+
+  /* ---------- Hero ---------- */
+  .hero { margin-top:64px; padding:110px 40px 90px; text-align:center;
+          background:linear-gradient(135deg,#1E9FFF 0%,#6a5cff 100%); color:#fff; }
+  .hero h1 { font-size:40px; letter-spacing:4px; margin-bottom:18px; }
+  .hero p { font-size:17px; opacity:.9; max-width:640px; margin:0 auto 34px; line-height:1.8; }
+  .hero .btn { display:inline-block; padding:12px 42px; background:#fff; color:#1E9FFF; border-radius:30px;
+               font-size:16px; cursor:pointer; text-decoration:none; }
+
+  /* ---------- 特性 ---------- */
+  .features { max-width:1100px; margin:0 auto; padding:70px 30px; display:flex; gap:26px; flex-wrap:wrap; }
+  .feature { flex:1; min-width:240px; border:1px solid #f0f0f0; border-radius:12px; padding:30px 24px;
+             transition:box-shadow .25s; }
+  .feature:hover { box-shadow:0 8px 24px rgba(0,0,0,.08); }
+  .feature h3 { font-size:18px; margin:14px 0 10px; }
+  .feature p { font-size:14px; color:#888; line-height:1.8; }
+  .feature .ico { width:46px; height:46px; border-radius:12px; background:#eaf5ff; color:#1E9FFF;
+                  font-size:24px; display:flex; align-items:center; justify-content:center; }
+
+  footer { text-align:center; padding:34px 0; color:#aaa; font-size:13px; border-top:1px solid #f2f2f2; }
+
+  /* ---------- 右侧悬浮工具条 ---------- */
+  .side-dock { position:fixed; right:0; top:50%; transform:translateY(-50%); z-index:900;
+               display:flex; flex-direction:column; gap:8px; }
+  .side-dock .dock-item { width:52px; height:52px; background:#fff; border-radius:10px 0 0 10px;
+               box-shadow:-2px 2px 12px rgba(0,0,0,.12); display:flex; flex-direction:column;
+               align-items:center; justify-content:center; cursor:pointer; color:#666; }
+  .side-dock .dock-item:hover { color:#1E9FFF; }
+  .side-dock .dock-item .t { font-size:11px; margin-top:2px; }
+  .side-dock .dock-item.kefu { background:#1E9FFF; color:#fff; height:64px; position:relative; }
+  .side-dock .dock-item.kefu:hover { background:#1877d2; }
+  .side-dock .dock-item.kefu svg { width:26px; height:26px; }
+
+  /* 未读角标 */
+  #kefu-badge { position:absolute; top:-6px; left:-6px; min-width:18px; height:18px; padding:0 5px;
+                background:#FF5722; color:#fff; font-size:12px; line-height:18px; text-align:center;
+                border-radius:9px; display:none; }
+
+  /* ---------- 客服聊天面板 ---------- */
+  #kefu-panel { position:fixed; right:20px; bottom:20px; width:380px; height:600px;
+                max-width:calc(100vw - 20px); max-height:calc(100dvh - 40px);
+                border-radius:12px; overflow:hidden; z-index:901;
+                box-shadow:0 12px 40px rgba(0,0,0,.22); display:none; background:#fff; }
+  #kefu-panel.show { display:flex; flex-direction:column; }
+  #kefu-panel .kefu-head { height:46px; background:#1E9FFF; color:#fff; display:flex; align-items:center;
+                padding:0 14px; font-size:15px; flex:none; }
+  #kefu-panel .kefu-head .dot { width:8px; height:8px; border-radius:50%; background:#7CFC90; margin-right:8px; }
+  #kefu-panel .kefu-head .close { margin-left:auto; cursor:pointer; font-size:20px; line-height:1; opacity:.85; }
+  #kefu-panel .kefu-head .close:hover { opacity:1; }
+  #kefu-panel iframe { flex:1; width:100%; border:0; }
+
+  @media (max-width:768px){
+    .nav { padding:0 18px; } .nav ul li { margin-left:16px; font-size:14px; }
+    .hero { padding:80px 20px 60px; } .hero h1 { font-size:28px; }
+    #kefu-panel { right:0; bottom:0; width:100vw; max-width:100vw; height:100dvh; max-height:100dvh; border-radius:0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <div class="logo">云启<span>科技</span></div>
+  <ul>
+    <li>首页</li><li>产品</li><li>解决方案</li><li>关于我们</li>
+  </ul>
+</div>
+
+<div class="hero">
+  <h1>让企业沟通更简单</h1>
+  <p>云启科技专注企业级即时通讯与协同办公解决方案，支持私有化部署、第三方系统集成与网站在线客服。</p>
+  <a class="btn" href="javascript:void(0)" onclick="KefuPanel.open()">咨询在线客服</a>
+</div>
+
+<div class="features">
+  <div class="feature"><div class="ico">⚡</div><h3>即时通讯</h3><p>单聊、群聊、离线消息、文件传输，毫秒级送达。</p></div>
+  <div class="feature"><div class="ico">🔗</div><h3>系统集成</h3><p>标准 API 与单点登录，轻松接入现有办公系统。</p></div>
+  <div class="feature"><div class="ico">🎧</div><h3>在线客服</h3><p>网站访客免登录直连客服，一对多高效接待。</p></div>
+</div>
+
+<footer>© 2026 云启科技（演示站点，仅用于功能展示）</footer>
+
+<!-- 右侧悬浮工具条：客服入口 -->
+<div class="side-dock">
+  <div class="dock-item kefu" id="kefu-entry" title="在线客服">
+    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a8 8 0 0 0-8 8v5a3 3 0 0 0 3 3h1a1 1 0 0 0 1-1v-6a1 1 0 0 0-1-1H6.06A6 6 0 0 1 12 4a6 6 0 0 1 5.94 6H16a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1a3 3 0 0 0 2.24-1H19a3 3 0 0 1-3 3h-2a1 1 0 0 0-1 1 1 1 0 0 0 1 1h2a5 5 0 0 0 5-5v-5a8 8 0 0 0-8-8z"/></svg>
+    <span class="t">客服</span>
+    <span id="kefu-badge"></span>
+  </div>
+  <div class="dock-item" title="返回顶部" onclick="window.scrollTo({top:0,behavior:'smooth'})">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 8l6 6-1.4 1.4L12 10.8l-4.6 4.6L6 14z"/></svg>
+    <span class="t">顶部</span>
+  </div>
+</div>
+
+<!-- 客服聊天面板（懒加载 iframe，访客免登录） -->
+<div id="kefu-panel">
+  <div class="kefu-head"><span class="dot"></span>在线客服<span class="close" id="kefu-close">×</span></div>
+</div>
+
+<script>
+(function(){
+  // 聊天系统地址：同站点部署时保持空串即可；独立部署时改成聊天系统完整地址，如 'http://chat.example.com'
+  var CHAT_BASE = '';
+  var CHAT_URL = CHAT_BASE + '/index.html?embed=1&guest=1';
+
+  var panel = document.getElementById('kefu-panel');
+  var badge = document.getElementById('kefu-badge');
+  var unread = 0, iframe = null;
+
+  function renderBadge(){
+    if(unread > 0 && !panel.classList.contains('show')){
+      badge.style.display = 'block';
+      badge.textContent = unread > 99 ? '99+' : unread;
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  function open(){
+    if(!iframe){
+      iframe = document.createElement('iframe');
+      iframe.src = CHAT_URL;
+      panel.appendChild(iframe);
+    }
+    panel.classList.add('show');
+    unread = 0;
+    renderBadge();
+  }
+  function close(){ panel.classList.remove('show'); }
+
+  document.getElementById('kefu-entry').addEventListener('click', function(){
+    panel.classList.contains('show') ? close() : open();
+  });
+  document.getElementById('kefu-close').addEventListener('click', close);
+
+  // 接收聊天系统 iframe 的事件：新消息时更新未读角标
+  window.addEventListener('message', function(e){
+    if(iframe && e.source !== iframe.contentWindow){ return; }
+    var d = e.data || {};
+    if(d.source !== 'cxim'){ return; }
+    if(d.type === 'cxim:message'){
+      unread++;
+      renderBadge();
+    }
+  });
+
+  window.KefuPanel = { open: open, close: close };
+})();
+</script>
+</body>
+</html>

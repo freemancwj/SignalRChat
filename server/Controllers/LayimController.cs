@@ -38,6 +38,54 @@ public class LayimController : ControllerBase
             return Unauthorized();
         }
 
+        // 网站访客（免登录临时用户）：通讯录只有固定客服一个联系人，没有任何群组
+        if (ServiceAgent.IsGuestName(me.Username))
+        {
+            var agent = await _db.Users.FindAsync(ServiceAgent.Id);
+            if (agent == null)
+            {
+                return Ok(new { code = 1, msg = "客服账号不存在" });
+            }
+            return Ok(new
+            {
+                code = 0,
+                msg = "",
+                data = new
+                {
+                    mine = new
+                    {
+                        username = me.Username,
+                        id = me.Id,
+                        status = me.Status,
+                        sign = me.Sign,
+                        avatar = Avatars.OrDefault(me.Avatar),
+                        admin = false,
+                        guest = true // 前端据此进入访客模式（精简界面、自动打开客服会话）
+                    },
+                    friend = new[]
+                    {
+                        new
+                        {
+                            groupname = "在线客服",
+                            id = "kefu",
+                            list = new[]
+                            {
+                                new
+                                {
+                                    username = ServiceAgent.DisplayName,
+                                    id = agent.Id,
+                                    avatar = Avatars.OrDefault(agent.Avatar),
+                                    sign = agent.Sign,
+                                    status = "online" // 客服对访客恒在线
+                                }
+                            }
+                        }
+                    },
+                    group = Array.Empty<object>()
+                }
+            });
+        }
+
         // 通讯录按群组（部门）组织：第一级为群组，展开显示该群组下的所有成员
         var allGroups = await _db.ChatGroups
             .Include(g => g.Members)
@@ -90,6 +138,9 @@ public class LayimController : ControllerBase
                                 status = ChatHub.IsOnline(u.Id) ? "online" : "offline"
                             };
                         })
+                        // 在线用户排在所有离线用户之前
+                        .OrderByDescending(m => m.status == "online")
+                        .ThenBy(m => m.username)
                 }),
                 group = myGroups.Select(g => new { groupname = g.GroupName, id = g.Id, avatar = Avatars.OrDefault(g.Avatar) })
             }

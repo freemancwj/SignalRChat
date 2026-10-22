@@ -37,11 +37,13 @@ public class IntegrationController : ControllerBase
         return Ok(new { code = 0, msg = "", data = users });
     }
 
-    public record SyncUserRequest(string Username, string? Password, string? Sign, string? Avatar);
+    public record SyncUserRequest(string Username, string? Password, string? Sign, string? Avatar, string[]? Groups);
 
     /// <summary>
-    /// 同步用户：用户名不存在则创建（自动互加好友、加入所有群），已存在则更新签名/头像/密码。
-    /// 适用于业务系统增删改账号时同步聊天账号。
+    /// 同步用户：用户名不存在则创建，已存在则更新签名/头像/密码/群组成员关系。
+    /// Groups 为办公系统的部门（群组）ID 列表：
+    /// - 传入（含空数组）时按此列表精确设置成员关系，空数组表示不属于任何群；
+    /// - 不传（null）时保持旧行为：新建用户自动加入所有群，已存在用户群关系不变。
     /// </summary>
     [HttpPost("users")]
     public async Task<IActionResult> SyncUser([FromBody] SyncUserRequest req)
@@ -52,18 +54,40 @@ public class IntegrationController : ControllerBase
             return Ok(new { code = 1, msg = "用户名长度需在 2-20 个字符之间" });
         }
 
+        if (req.Groups != null)
+        {
+            var allGroupIds = await _db.ChatGroups.Select(g => g.Id).ToListAsync();
+            var invalid = req.Groups.Select(g => (g ?? "").Trim()).Where(g => g.Length > 0 && !allGroupIds.Contains(g)).ToList();
+            if (invalid.Count > 0)
+            {
+                return Ok(new { code = 1, msg = $"群组不存在：{string.Join(",", invalid)}，请先创建群组" });
+            }
+        }
+
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Username == username);
         var created = false;
 
         if (user == null)
         {
-            // 未提供密码时默认 123456
             var password = string.IsNullOrEmpty(req.Password) ? "123456" : req.Password;
-            user = await UserProvisioning.CreateWithDefaultsAsync(_db, username, password);
+            if (req.Groups == null)
+            {
+                // 未指定群组：沿用旧行为，自动加入所有群
+                user = await UserProvisioning.CreateWithDefaultsAsync(_db, username, password);
+            }
+            else
+            {
+                user = await UserProvisioning.CreateWithDefaultsAsync(_db, username, password,
+                    joinAllGroupsIfNoGroupId: false);
+                foreach (var gid in req.Groups.Distinct())
+                {
+                    _db.GroupMembers.Add(new GroupMember { GroupId = gid, UserId = user.Id });
+                }
+                await _db.SaveChangesAsync();
+            }
             created = true;
         }
-
-        if (!created)
+        else
         {
             if (req.Sign != null) user.Sign = req.Sign;
             if (req.Avatar != null) user.Avatar = req.Avatar;
@@ -74,9 +98,219 @@ public class IntegrationController : ControllerBase
                 user.Salt = salt;
             }
             await _db.SaveChangesAsync();
+
+            if (req.Groups != null)
+            {
+                await SetMembershipsAsync(user.Id, req.Groups);
+            }
         }
 
         return Ok(new { code = 0, msg = "", data = new { id = user.Id, username = user.Username, created } });
+    }
+
+    /// <summary>删除用户：连带清理好友关系、群成员关系与该用户的消息</summary>
+    [HttpDelete("users/{user}")]
+    public async Task<IActionResult> DeleteUser(string user)
+    {
+        var target = await ResolveUser(user);
+        if (target == null)
+        {
+            return Ok(new { code = 1, msg = $"用户不存在：{user}" });
+        }
+
+        await _db.Friendships
+            .Where(f => f.OwnerId == target.Id || f.FriendId == target.Id)
+            .ExecuteDeleteAsync();
+        await _db.GroupMembers.Where(m => m.UserId == target.Id).ExecuteDeleteAsync();
+        await _db.Messages
+            .Where(m => m.FromUserId == target.Id || (m.ToType == "friend" && m.ToId == target.Id))
+            .ExecuteDeleteAsync();
+        _db.Users.Remove(target);
+        await _db.SaveChangesAsync();
+
+        return Ok(new { code = 0, msg = "" });
+    }
+
+    // ==================== 群组（部门）同步 ====================
+
+    /// <summary>群组列表（含成员），供办公系统对账</summary>
+    [HttpGet("groups")]
+    public async Task<IActionResult> Groups()
+    {
+        var groups = await _db.ChatGroups.OrderBy(g => g.Id).ToListAsync();
+        var members = await _db.GroupMembers.ToListAsync();
+        var nameMap = await _db.Users.ToDictionaryAsync(u => u.Id, u => u.Username);
+
+        var data = groups.Select(g => new
+        {
+            id = g.Id,
+            name = g.GroupName,
+            ownerId = g.OwnerId,
+            members = members
+                .Where(m => m.GroupId == g.Id)
+                .Select(m => new { id = m.UserId, username = nameMap.TryGetValue(m.UserId, out var n) ? n : "" })
+                .ToList()
+        });
+
+        return Ok(new { code = 0, msg = "", data });
+    }
+
+    public record SyncGroupRequest(string? Id, string? Name);
+
+    /// <summary>
+    /// 创建或更新群组：建议直接用办公系统的部门ID作为群ID（稳定不变）。
+    /// 已存在时仅更新名称；名称变化会实时通知在线成员刷新界面。
+    /// </summary>
+    [HttpPost("groups")]
+    public async Task<IActionResult> SyncGroup([FromBody] SyncGroupRequest req)
+    {
+        var name = (req.Name ?? "").Trim();
+        if (name.Length == 0 || name.Length > 30)
+        {
+            return Ok(new { code = 1, msg = "群名称长度需在 1-30 个字符之间" });
+        }
+
+        var id = (req.Id ?? "").Trim();
+        if (id.Length == 0)
+        {
+            // 未指定ID时自动生成递增数字ID（与网页端管理界面一致）
+            var ids = await _db.ChatGroups.Select(g => g.Id).ToListAsync();
+            id = (ids.Select(v => int.TryParse(v, out var n) ? n : 0).DefaultIfEmpty(0).Max() + 1).ToString();
+        }
+        if (id.Length > 50)
+        {
+            return Ok(new { code = 1, msg = "群组ID长度不能超过 50" });
+        }
+
+        var group = await _db.ChatGroups.FindAsync(id);
+        var created = false;
+        if (group == null)
+        {
+            group = new ChatGroup { Id = id, GroupName = name, Avatar = "", OwnerId = "" };
+            _db.ChatGroups.Add(group);
+            created = true;
+        }
+        else
+        {
+            group.GroupName = name;
+        }
+        await _db.SaveChangesAsync();
+
+        if (!created)
+        {
+            await _hub.Clients.Group(ChatHub.GroupName(id)).SendAsync("GroupRenamed", new { id, name });
+        }
+
+        return Ok(new { code = 0, msg = "", data = new { id, name, created } });
+    }
+
+    /// <summary>删除群组：连带删除成员关系与该群聊天记录，并通知在线成员移除界面上的群</summary>
+    [HttpDelete("groups/{id}")]
+    public async Task<IActionResult> DeleteGroup(string id)
+    {
+        var group = await _db.ChatGroups.FindAsync(id);
+        if (group == null)
+        {
+            return Ok(new { code = 1, msg = $"群组不存在：{id}" });
+        }
+
+        await _hub.Clients.Group(ChatHub.GroupName(id))
+            .SendAsync("GroupDeleted", new { id = group.Id, name = group.GroupName });
+
+        await _db.GroupMembers.Where(m => m.GroupId == id).ExecuteDeleteAsync();
+        await _db.Messages.Where(m => m.ToType == "group" && m.ToId == id).ExecuteDeleteAsync();
+        _db.ChatGroups.Remove(group);
+        await _db.SaveChangesAsync();
+
+        return Ok(new { code = 0, msg = "" });
+    }
+
+    public record MemberRequest(string? User);
+
+    /// <summary>向群组添加成员（User 传用户ID或用户名），可重复调用</summary>
+    [HttpPost("groups/{id}/members")]
+    public async Task<IActionResult> AddMember(string id, [FromBody] MemberRequest req)
+    {
+        if (await _db.ChatGroups.FindAsync(id) == null)
+        {
+            return Ok(new { code = 1, msg = $"群组不存在：{id}" });
+        }
+        var user = await ResolveUser(req.User);
+        if (user == null)
+        {
+            return Ok(new { code = 1, msg = $"用户不存在：{req.User}" });
+        }
+
+        var exists = await _db.GroupMembers.AnyAsync(m => m.GroupId == id && m.UserId == user.Id);
+        if (!exists)
+        {
+            _db.GroupMembers.Add(new GroupMember { GroupId = id, UserId = user.Id });
+            await _db.SaveChangesAsync();
+            foreach (var connId in ChatHub.ConnectionIdsOf(user.Id))
+            {
+                await _hub.Groups.AddToGroupAsync(connId, ChatHub.GroupName(id));
+            }
+        }
+
+        return Ok(new { code = 0, msg = "", data = new { groupId = id, userId = user.Id, added = !exists } });
+    }
+
+    /// <summary>从群组移除成员（路径中的 users 传用户ID或用户名，含中文需 URL 编码）</summary>
+    [HttpDelete("groups/{id}/members/{user}")]
+    public async Task<IActionResult> RemoveMember(string id, string user)
+    {
+        var group = await _db.ChatGroups.FindAsync(id);
+        if (group == null)
+        {
+            return Ok(new { code = 1, msg = $"群组不存在：{id}" });
+        }
+        var target = await ResolveUser(user);
+        if (target == null)
+        {
+            return Ok(new { code = 1, msg = $"用户不存在：{user}" });
+        }
+
+        var member = await _db.GroupMembers.FirstOrDefaultAsync(m => m.GroupId == id && m.UserId == target.Id);
+        if (member == null)
+        {
+            return Ok(new { code = 1, msg = "该用户不在此群中" });
+        }
+
+        _db.GroupMembers.Remove(member);
+        await _db.SaveChangesAsync();
+        foreach (var connId in ChatHub.ConnectionIdsOf(target.Id))
+        {
+            await _hub.Groups.RemoveFromGroupAsync(connId, ChatHub.GroupName(id));
+        }
+        await _hub.Clients.User(target.Id)
+            .SendAsync("RemovedFromGroup", new { id = group.Id, name = group.GroupName });
+
+        return Ok(new { code = 0, msg = "" });
+    }
+
+    /// <summary>按列表精确设置用户所属群组，并同步其在线连接的 SignalR 组成员关系</summary>
+    private async Task SetMembershipsAsync(string userId, string[] groupIds)
+    {
+        var wanted = groupIds.Where(g => !string.IsNullOrWhiteSpace(g)).Select(g => g.Trim()).Distinct().ToList();
+
+        var current = await _db.GroupMembers.Where(m => m.UserId == userId).ToListAsync();
+        _db.GroupMembers.RemoveRange(current.Where(m => !wanted.Contains(m.GroupId)));
+        var toAdd = wanted.Where(g => current.All(m => m.GroupId != g)).ToList();
+        foreach (var gid in toAdd)
+        {
+            _db.GroupMembers.Add(new GroupMember { GroupId = gid, UserId = userId });
+        }
+        await _db.SaveChangesAsync();
+
+        var allGroupIds = await _db.ChatGroups.Select(g => g.Id).ToListAsync();
+        foreach (var connId in ChatHub.ConnectionIdsOf(userId))
+        {
+            foreach (var gid in allGroupIds)
+            {
+                if (wanted.Contains(gid)) await _hub.Groups.AddToGroupAsync(connId, ChatHub.GroupName(gid));
+                else await _hub.Groups.RemoveFromGroupAsync(connId, ChatHub.GroupName(gid));
+            }
+        }
     }
 
     public record SendMessageRequest(string FromUser, string ToType, string ToUser, string Content);
