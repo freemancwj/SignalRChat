@@ -28,6 +28,24 @@ public class LayimController : ControllerBase
 
     private string MyId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
+    /// <summary>「不属于任何群组的用户」占位分组名：前端据此隐藏分组标题，把这些用户平铺在群组下方</summary>
+    public const string NoGroupName = "__nogroup__";
+
+    /// <summary>把 yyyy-MM-dd 的本地日期转换为 UTC 边界。
+    /// isEnd=true 时返回「次日 00:00（本地）」对应的 UTC，供 &lt; 比较实现整日包含；解析失败返回 null。</summary>
+    private static DateTime? ParseLocalDate(string? text, bool isEnd)
+    {
+        if (string.IsNullOrWhiteSpace(text)) { return null; }
+        if (!DateTime.TryParseExact(text.Trim(), "yyyy-MM-dd",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var day))
+        {
+            return null;
+        }
+        if (isEnd) { day = day.AddDays(1); }
+        return TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(day, DateTimeKind.Unspecified), TimeZoneInfo.Local);
+    }
+
     /// <summary>LayIM 初始化数据（好友列表 + 我的群组 + 我的资料）</summary>
     [HttpGet("init")]
     public async Task<IActionResult> Init()
@@ -163,6 +181,60 @@ public class LayimController : ControllerBase
             .Join(_db.ChatGroups, m => m.GroupId, g => g.Id, (m, g) => g)
             .ToListAsync();
 
+        // 不属于任何群组的用户：作为最后一个分组追加到联系人列表末尾
+        // （前端隐藏该分组标题，直接平铺在所有群组下方；否则选择「暂不加入群组」的用户不会出现在任何人的联系人列表里）
+        var noGroupUsers = await _db.Users
+            .Where(u => u.Id != MyId
+                && u.Id != ServiceAgent.Id
+                && !u.Username.StartsWith(ServiceAgent.GuestPrefix)
+                && !_db.GroupMembers.Any(m => m.UserId == u.Id))
+            .ToListAsync();
+
+        var friendGroups = allGroups.Select(g => (object)new
+        {
+            groupname = g.GroupName,
+            id = g.Id,
+            list = g.Members
+                .Where(m => m.UserId != MyId && memberUsers.ContainsKey(m.UserId))
+                .Select(m =>
+                {
+                    var u = memberUsers[m.UserId];
+                    return new
+                    {
+                        username = u.Username,
+                        id = u.Id,
+                        avatar = Avatars.OrDefault(u.Avatar),
+                        sign = u.Sign,
+                        // online/offline：前端据此渲染在线标识，离线好友头像置灰
+                        status = ChatHub.IsOnline(u.Id) ? "online" : "offline"
+                    };
+                })
+                // 在线用户排在所有离线用户之前
+                .OrderByDescending(m => m.status == "online")
+                .ThenBy(m => m.username)
+        }).ToList();
+
+        if (noGroupUsers.Count > 0)
+        {
+            friendGroups.Add(new
+            {
+                // 占位分组名：前端据此隐藏分组标题，让这些用户直接平铺在群组下方
+                groupname = NoGroupName,
+                id = NoGroupName,
+                list = noGroupUsers
+                    .Select(u => new
+                    {
+                        username = u.Username,
+                        id = u.Id,
+                        avatar = Avatars.OrDefault(u.Avatar),
+                        sign = u.Sign,
+                        status = ChatHub.IsOnline(u.Id) ? "online" : "offline"
+                    })
+                    .OrderByDescending(m => m.status == "online")
+                    .ThenBy(m => m.username)
+            });
+        }
+
         return Ok(new
         {
             code = 0,
@@ -179,32 +251,42 @@ public class LayimController : ControllerBase
                     // 前端据此显示「群组管理」入口
                     admin = me.IsAdmin
                 },
-                friend = allGroups.Select(g => new
-                {
-                    groupname = g.GroupName,
-                    id = g.Id,
-                    list = g.Members
-                        .Where(m => m.UserId != MyId && memberUsers.ContainsKey(m.UserId))
-                        .Select(m =>
-                        {
-                            var u = memberUsers[m.UserId];
-                            return new
-                            {
-                                username = u.Username,
-                                id = u.Id,
-                                avatar = Avatars.OrDefault(u.Avatar),
-                                sign = u.Sign,
-                                // online/offline：前端据此渲染在线标识，离线好友头像置灰
-                                status = ChatHub.IsOnline(u.Id) ? "online" : "offline"
-                            };
-                        })
-                        // 在线用户排在所有离线用户之前
-                        .OrderByDescending(m => m.status == "online")
-                        .ThenBy(m => m.username)
-                }),
+                friend = friendGroups,
                 group = myGroups.Select(g => new { groupname = g.GroupName, id = g.Id, avatar = Avatars.OrDefault(g.Avatar) })
             }
         });
+    }
+
+    /// <summary>搜索用户：按用户名模糊匹配，排除自己、客服账号与访客</summary>
+    [HttpGet("users/search")]
+    public async Task<IActionResult> SearchUsers([FromQuery] string? keyword)
+    {
+        var kw = (keyword ?? "").Trim();
+        if (kw.Length == 0)
+        {
+            return Ok(new { code = 0, msg = "", data = Array.Empty<object>() });
+        }
+        if (kw.Length > 30)
+        {
+            kw = kw[..30];
+        }
+
+        var users = await _db.Users
+            .Where(u => u.Username.Contains(kw) && u.Id != MyId
+                && u.Id != ServiceAgent.Id && !u.Username.StartsWith(ServiceAgent.GuestPrefix))
+            .OrderBy(u => u.Username)
+            .Take(20)
+            .ToListAsync();
+
+        var data = users.Select(u => new
+        {
+            username = u.Username,
+            id = u.Id,
+            avatar = Avatars.OrDefault(u.Avatar),
+            sign = u.Sign,
+            status = ChatHub.IsOnline(u.Id) ? "online" : "offline"
+        });
+        return Ok(new { code = 0, msg = "", data });
     }
 
     /// <summary>群成员列表</summary>
@@ -225,9 +307,10 @@ public class LayimController : ControllerBase
         return Ok(new { code = 0, msg = "", data = new { list = members } });
     }
 
-    /// <summary>历史消息（chatlog 弹窗使用）；带 keyword 时按关键字搜索</summary>
+    /// <summary>历史消息（chatlog 弹窗使用）；keyword 按关键字搜索，startDate/endDate 按日期区间过滤（本地日期，含首尾两天）</summary>
     [HttpGet("chatlog")]
-    public async Task<IActionResult> ChatLog([FromQuery] string id, [FromQuery] string type, [FromQuery] string? keyword)
+    public async Task<IActionResult> ChatLog([FromQuery] string id, [FromQuery] string type, [FromQuery] string? keyword,
+        [FromQuery] string? startDate, [FromQuery] string? endDate)
     {
 
         IQueryable<Message> query;
@@ -253,10 +336,39 @@ public class LayimController : ControllerBase
             return Ok(new { code = 1, msg = "不支持的会话类型" });
         }
 
+        // 日期区间过滤：前端传本地日期（yyyy-MM-dd），转换为 UTC 区间查询（库中 CreatedAt 为 UTC）
+        var fromUtc = ParseLocalDate(startDate, isEnd: false);
+        var toUtc = ParseLocalDate(endDate, isEnd: true);
+        if (string.IsNullOrWhiteSpace(startDate) && string.IsNullOrWhiteSpace(endDate))
+        {
+            // 未选日期：不加时间限制
+        }
+        else
+        {
+            if (fromUtc == null && toUtc == null)
+            {
+                return Ok(new { code = 1, msg = "日期格式应为 yyyy-MM-dd" });
+            }
+            if (!string.IsNullOrWhiteSpace(startDate) && fromUtc == null)
+            {
+                return Ok(new { code = 1, msg = "开始日期格式应为 yyyy-MM-dd" });
+            }
+            if (!string.IsNullOrWhiteSpace(endDate) && toUtc == null)
+            {
+                return Ok(new { code = 1, msg = "结束日期格式应为 yyyy-MM-dd" });
+            }
+            if (fromUtc != null && toUtc != null && fromUtc > toUtc)
+            {
+                return Ok(new { code = 1, msg = "开始日期不能晚于结束日期" });
+            }
+            if (fromUtc != null) query = query.Where(m => m.CreatedAt >= fromUtc.Value);
+            if (toUtc != null) query = query.Where(m => m.CreatedAt < toUtc.Value);
+        }
+
         // 搜索模式：按关键字过滤整段会话（历史不止最近200条，搜索时放宽区间）
         var kw = keyword?.Trim();
-        var isSearch = !string.IsNullOrEmpty(kw);
-        if (isSearch)
+        var isSearch = !string.IsNullOrEmpty(kw) || fromUtc != null || toUtc != null;
+        if (!string.IsNullOrEmpty(kw))
         {
             query = query.Where(m => m.Content.Contains(kw!));
         }

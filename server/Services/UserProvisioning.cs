@@ -20,13 +20,15 @@ public static class Avatars
 }
 
 /// <summary>
-/// 用户开通辅助：创建用户并执行默认动作（自动互加好友、自动加入所有群）。
+/// 用户开通辅助：创建用户并执行默认动作（创建默认好友分组、按参数加入群组）。
 /// 注册接口、第三方用户同步接口、SSO 自动开户共用。
+/// 注意：不自动与所有用户互加好友——企业用户之间可直接单聊（见 ChatHub.CanChatAsync），
+/// 好友关系仅用于上下线提醒等场景，不影响通讯录展示与发消息权限。
 /// </summary>
 public static class UserProvisioning
 {
     /// <summary>
-    /// 创建用户（自动与所有既有用户互加好友）。
+    /// 创建用户（不再自动互加好友，新用户好友列表为空）。
     /// groupId 指定时只加入该群组；
     /// groupId 为空时：joinAllGroupsIfNoGroupId=true 加入所有群组（SSO/集成同步的默认行为），
     /// false 则不属于任何群组（注册时未选群组）。
@@ -55,32 +57,16 @@ public static class UserProvisioning
         };
         db.Users.Add(user);
 
-        // 默认好友分组
+        // 默认好友分组（「我的好友」选项卡的数据来源，初始为空，由用户显式加好友填充）
         var myGroup = new FriendGroup { GroupName = "我的好友", OwnerId = user.Id };
         db.FriendGroups.Add(myGroup);
 
-        // 与所有现有用户互加好友
-        var allUsers = await db.Users.Where(u => u.Id != user.Id).ToListAsync();
         var groupIds = groupId != null
             ? new List<string> { groupId }
             : joinAllGroupsIfNoGroupId
                 ? await db.ChatGroups.Select(g => g.Id).ToListAsync()
                 : new List<string>();
 
-        foreach (var other in allUsers)
-        {
-            db.Friendships.Add(new Friendship { OwnerId = user.Id, FriendId = other.Id, FriendGroup = myGroup });
-
-            var otherGroupId = await db.FriendGroups
-                .Where(g => g.OwnerId == other.Id)
-                .OrderBy(g => g.Id)
-                .Select(g => (int?)g.Id)
-                .FirstOrDefaultAsync();
-            if (otherGroupId != null)
-            {
-                db.Friendships.Add(new Friendship { OwnerId = other.Id, FriendId = user.Id, FriendGroupId = otherGroupId.Value });
-            }
-        }
         foreach (var gid in groupIds)
         {
             db.GroupMembers.Add(new GroupMember { GroupId = gid, UserId = user.Id });

@@ -12,11 +12,23 @@ body .layim-chat-main{height: auto;}
 #cl-search{padding:10px 10px 0;}
 #cl-search .layui-input-inline{width:220px; margin-right:8px;}
 #cl-search .layui-input{height:32px;}
+#cl-search .cl-date-range{display:inline-flex; align-items:center; white-space:nowrap; vertical-align:middle; margin-right:8px;}
+#cl-search .cl-date-wrap{position:relative; display:inline-block;}
+#cl-search .cl-date-wrap input{height:32px; line-height:32px; width:150px; padding:0 22px 0 8px; border:1px solid #e6e6e6; border-radius:2px; font-size:13px; color:#333; box-sizing:border-box;}
+/* 日期清空按钮：原生日期框支持点选+手动输入，但不带清除，补一个 */
+#cl-search .cl-date-clear{position:absolute; right:5px; top:50%; transform:translateY(-50%); width:16px; height:16px; line-height:16px; text-align:center; font-size:14px; color:#c2c2c2; cursor:pointer; font-style:normal; display:none; user-select:none;}
+#cl-search .cl-date-clear:hover{color:#666;}
+#cl-search .cl-date-wrap.has-value .cl-date-clear{display:block;}
+#cl-search .cl-date-sep{color:#999; margin:0 4px; font-size:12px;}
 #cl-tip{padding:6px 10px 0; color:#999; font-size:12px;}
 /* 窄屏适配：搜索栏换行、气泡与头像压缩，避免横向溢出 */
 @media (max-width: 768px){
   #cl-search{padding:8px 8px 0;}
   #cl-search .layui-input-inline{display:block; width:100%; margin:0 0 6px;}
+  /* 起止日期始终保持同一行：容器整体占一行，两个日期框均分剩余宽度 */
+  #cl-search .cl-date-range{display:flex; width:100%; margin:0 0 6px;}
+  #cl-search .cl-date-wrap{flex:1; min-width:0;}
+  #cl-search .cl-date-wrap input{width:100%;}
   .layim-chat-main{padding:10px 8px 5px;}
   .layim-chat-main ul li{padding-left:44px; margin-bottom:8px; min-height:52px;}
   .layim-chat-main ul li.layim-chat-mine{padding-left:0; padding-right:44px;}
@@ -33,6 +45,11 @@ body .layim-chat-main{height: auto;}
   <div class="layui-input-inline">
     <input type="text" id="cl-keyword" class="layui-input" placeholder="搜索聊天记录" autocomplete="off">
   </div>
+  <span class="cl-date-range">
+    <span class="cl-date-wrap"><input type="date" id="cl-start" title="开始日期"><i class="cl-date-clear" title="清空开始日期">×</i></span>
+    <span class="cl-date-sep">至</span>
+    <span class="cl-date-wrap"><input type="date" id="cl-end" title="结束日期"><i class="cl-date-clear" title="清空结束日期">×</i></span>
+  </span>
   <button type="button" class="layui-btn layui-btn-sm" id="cl-do">搜索</button>
   <button type="button" class="layui-btn layui-btn-sm layui-btn-primary" id="cl-reset">全部记录</button>
 </div>
@@ -77,10 +94,12 @@ layui.config({
     return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
 
-  //从真实接口加载聊天记录（URL 上携带 id 和 type 参数；keyword 非空即为搜索）
-  function loadHistory(keyword){
+  //从真实接口加载聊天记录（URL 上携带 id 和 type 参数；keyword/日期区间非空即为搜索）
+  function loadHistory(keyword, startDate, endDate){
     var url = '/api/layim/chatlog' + location.search;
     if(keyword){ url += '&keyword=' + encodeURIComponent(keyword); }
+    if(startDate){ url += '&startDate=' + encodeURIComponent(startDate); }
+    if(endDate){ url += '&endDate=' + encodeURIComponent(endDate); }
     $.getJSON(url, function(res){
       if(res.code !== 0){
         $view.html('<li style="padding:15px; color:#999;">' + (res.msg || '加载失败') + '</li>');
@@ -92,14 +111,21 @@ layui.config({
       });
 
       if(res.data.length === 0){
-        $view.html('<li style="padding:15px; color:#999;">'
-          + (keyword ? '没有找到包含「' + $('<i>').text(keyword).html() + '」的聊天记录' : '暂无聊天记录') + '</li>');
+        var emptyMsg = (keyword || startDate || endDate)
+          ? '没有找到' + (keyword ? '包含「' + $('<i>').text(keyword).html() + '」' : '')
+            + (startDate || endDate ? '在 ' + (startDate || '最早') + ' 至 ' + (endDate || '最新') + ' 之间' : '')
+            + '的聊天记录'
+          : '暂无聊天记录';
+        $view.html('<li style="padding:15px; color:#999;">' + emptyMsg + '</li>');
       } else {
         $view.html(laytpl(LAY_tpl.value).render({ data: res.data }));
       }
       //搜索结果提示
-      $tip.text(keyword
-        ? '「' + keyword + '」共匹配 ' + (res.total || 0) + ' 条' + (res.total > res.data.length ? '，显示最近 ' + res.data.length + ' 条' : '')
+      var condTip = '';
+      if(keyword){ condTip += '「' + keyword + '」'; }
+      if(startDate || endDate){ condTip += (condTip ? ' ' : '') + (startDate || '最早') + ' ~ ' + (endDate || '最新'); }
+      $tip.text(condTip
+        ? condTip + ' 共匹配 ' + (res.total || 0) + ' 条' + (res.total > res.data.length ? '，显示最近 ' + res.data.length + ' 条' : '')
         : '');
       //滚动到底部
       var main = document.querySelector('.layim-chat-main');
@@ -107,13 +133,32 @@ layui.config({
     });
   }
 
+  //日期框清空：有值时才显示 ×，点击清空并立即按当前条件重新搜索
+  $('#cl-search .cl-date-wrap').each(function(){
+    var $wrap = $(this), $input = $wrap.find('input');
+    $wrap.find('.cl-date-clear').on('click', function(){
+      $input.val('').trigger('change');
+      doSearch();
+    });
+    $input.on('input change', function(){
+      $wrap.toggleClass('has-value', !!$input.val());
+    });
+    $wrap.toggleClass('has-value', !!$input.val());
+  });
+
   //搜索 / 重置
-  $('#cl-do').on('click', function(){ loadHistory($.trim($('#cl-keyword').val())); });
+  function doSearch(){
+    loadHistory($.trim($('#cl-keyword').val()), $('#cl-start').val(), $('#cl-end').val());
+  }
+  $('#cl-do').on('click', doSearch);
   $('#cl-keyword').on('keydown', function(e){
-    if(e.keyCode === 13){ loadHistory($.trim($(this).val())); }
+    if(e.keyCode === 13){ doSearch(); }
   });
   $('#cl-reset').on('click', function(){
     $('#cl-keyword').val('');
+    $('#cl-start').val('');
+    $('#cl-end').val('');
+    $('#cl-search .cl-date-wrap').removeClass('has-value');
     loadHistory('');
   });
 

@@ -32,6 +32,19 @@ public class ChatHub : Hub
 
     public static string GroupName(string groupId) => $"group_{groupId}";
 
+    /// <summary>单聊/视频通话权限：企业用户之间可自由沟通（联系人列表里能看到的人就能发消息）；
+    /// 网站访客仅能与客服单聊，客服仅能与访客单聊，访客之间互相隔离。</summary>
+    private async Task<bool> CanChatAsync(string a, string b)
+    {
+        if (a == b) return false;
+        var userA = await _db.Users.FindAsync(a);
+        var userB = await _db.Users.FindAsync(b);
+        if (userA == null || userB == null) return false;
+        if (ServiceAgent.IsGuestName(userA.Username)) return b == ServiceAgent.Id;
+        if (ServiceAgent.IsGuestName(userB.Username)) return a == ServiceAgent.Id;
+        return true;
+    }
+
     /// <summary>用户在线连接数（内存计数：同一用户多标签页/多浏览器时，最后一个连接断开才算离线）</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> OnlineCounts = new();
 
@@ -60,10 +73,8 @@ public class ChatHub : Hub
         var myId = MyId;
         if (toUserId == myId) throw new HubException("不能与自己通话");
 
-        var isFriend = await _db.Friendships.AnyAsync(f =>
-            (f.OwnerId == myId && f.FriendId == toUserId) ||
-            (f.OwnerId == toUserId && f.FriendId == myId));
-        if (!isFriend) throw new HubException("只能与好友视频通话");
+        var isFriend = await CanChatAsync(myId, toUserId);
+        if (!isFriend) throw new HubException("无法与该用户通话");
         if (!IsOnline(toUserId)) throw new HubException("对方不在线，无法接通");
         if (CallSessions.ContainsKey(myId)) throw new HubException("你正在通话中，请先结束当前通话");
         if (CallSessions.ContainsKey(toUserId) || CallSessions.Values.Contains(toUserId))
@@ -278,12 +289,10 @@ public class ChatHub : Hub
 
         if (toType == "friend" && toId != fromId)
         {
-            var isFriend = await _db.Friendships.AnyAsync(f =>
-                (f.OwnerId == fromId && f.FriendId == toId) ||
-                (f.OwnerId == toId && f.FriendId == fromId));
-            if (!isFriend)
+            var canChat = await CanChatAsync(fromId, toId);
+            if (!canChat)
             {
-                throw new HubException("只能给好友发送消息");
+                throw new HubException("无法给该用户发送消息");
             }
         }
         else if (toType == "group")
